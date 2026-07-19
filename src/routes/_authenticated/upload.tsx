@@ -1,0 +1,196 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { Upload, FileSpreadsheet, Loader2, Trash2, CheckCircle2 } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import * as XLSX from "xlsx";
+import { normalizePlate, splitPlate } from "@/lib/plate-utils";
+
+export const Route = createFileRoute("/_authenticated/upload")({
+  component: UploadPage,
+});
+
+interface ParsedRow {
+  plate_raw: string;
+  bank: string | null;
+  car_type: string | null;
+  chassis: string | null;
+  plate_date: string | null;
+}
+
+function guessCol(headers: string[], candidates: string[]): number {
+  for (let i = 0; i < headers.length; i++) {
+    const h = String(headers[i] ?? "").trim();
+    for (const c of candidates) if (h.includes(c)) return i;
+  }
+  return -1;
+}
+
+function parseExcel(file: File): Promise<{ rows: ParsedRow[]; headers: string[] }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target!.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
+        // Find sheet with most rows
+        let bestSheet = wb.SheetNames[0];
+        let bestCount = 0;
+        for (const name of wb.SheetNames) {
+          const s = wb.Sheets[name];
+          const arr = XLSX.utils.sheet_to_json<unknown[]>(s, { header: 1, defval: "" });
+          if (arr.length > bestCount) { bestCount = arr.length; bestSheet = name; }
+        }
+        const sheet = wb.Sheets[bestSheet];
+        const arr = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+        if (arr.length < 2) return resolve({ rows: [], headers: [] });
+        const headers = (arr[0] as unknown[]).map((h) => String(h ?? "").trim());
+        const plateIdx = guessCol(headers, ["اللوحة", "لوحة", "plate"]);
+        const bankIdx = guessCol(headers, ["البنك", "bank"]);
+        const typeIdx = guessCol(headers, ["النوع", "type", "الموديل"]);
+        const chassisIdx = guessCol(headers, ["الهيكل", "chassis", "vin"]);
+        const dateIdx = guessCol(headers, ["التاريخ", "date"]);
+        if (plateIdx === -1) return reject(new Error("لم يتم العثور على عمود اللوحة"));
+        const rows: ParsedRow[] = [];
+        for (let i = 1; i < arr.length; i++) {
+          const row = arr[i] as unknown[];
+          const rawPlate = String(row[plateIdx] ?? "").trim();
+          if (!rawPlate) continue;
+          rows.push({
+            plate_raw: rawPlate,
+            bank: bankIdx >= 0 ? String(row[bankIdx] ?? "").trim() || null : null,
+            car_type: typeIdx >= 0 ? String(row[typeIdx] ?? "").trim() || null : null,
+            chassis: chassisIdx >= 0 ? String(row[chassisIdx] ?? "").trim() || null : null,
+            plate_date: dateIdx >= 0 ? String(row[dateIdx] ?? "").trim() || null : null,
+          });
+        }
+        resolve({ rows, headers });
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function UploadPage() {
+  const qc = useQueryClient();
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  const { data: batches, refetch } = useQuery({
+    queryKey: ["batches"],
+    queryFn: async () => {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) return [];
+      const { data } = await supabase
+        .from("plate_batches")
+        .select("id, file_name, plates_count, created_at")
+        .eq("user_id", u.user.id)
+        .order("created_at", { ascending: false });
+      return data ?? [];
+    },
+  });
+
+  async function handleFile(file: File) {
+    setUploading(true);
+    setProgress(null);
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) throw new Error("غير مسجّل");
+      toast.info("جاري تحليل الملف...");
+      const { rows } = await parseExcel(file);
+      if (rows.length === 0) throw new Error("الملف لا يحتوي على بيانات");
+
+      const { data: batch, error: batchErr } = await supabase
+        .from("plate_batches")
+        .insert({ user_id: u.user.id, file_name: file.name, plates_count: rows.length })
+        .select("id")
+        .single();
+      if (batchErr) throw batchErr;
+
+      const CHUNK = 1000;
+      setProgress({ done: 0, total: rows.length });
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const slice = rows.slice(i, i + CHUNK).map((r) => {
+          const normalized = normalizePlate(r.plate_raw);
+          const { letters, digits } = splitPlate(normalized);
+          return { ...r, user_id: u.user!.id, batch_id: batch.id, plate_normalized: normalized, letters: letters || null, digits: digits || null };
+        });
+        const { error } = await supabase.from("plates").insert(slice);
+        if (error) throw error;
+        setProgress({ done: Math.min(i + CHUNK, rows.length), total: rows.length });
+      }
+      toast.success(`تم رفع ${rows.length.toLocaleString("ar-EG")} لوحة بنجاح`);
+      qc.invalidateQueries({ queryKey: ["batches"] });
+      qc.invalidateQueries({ queryKey: ["home-stats"] });
+      refetch();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "فشل الرفع");
+    } finally {
+      setUploading(false);
+      setProgress(null);
+    }
+  }
+
+  async function deleteBatch(id: string) {
+    if (!confirm("حذف هذه الدفعة وكل لوحاتها؟")) return;
+    const { error } = await supabase.from("plate_batches").delete().eq("id", id);
+    if (error) return toast.error(error.message);
+    toast.success("تم الحذف");
+    qc.invalidateQueries({ queryKey: ["batches"] });
+    qc.invalidateQueries({ queryKey: ["home-stats"] });
+  }
+
+  return (
+    <div className="px-5 pt-8">
+      <h1 className="mb-1 text-2xl font-black">رفع ملف اللوحات</h1>
+      <p className="mb-5 text-sm text-muted-foreground">يومياً — Excel من البنك</p>
+
+      <label className={`block rounded-3xl border-2 border-dashed border-primary/40 bg-primary/5 p-8 text-center transition ${uploading ? "opacity-50" : "hover:bg-primary/10 cursor-pointer"}`}>
+        <input type="file" accept=".xlsx,.xls" className="hidden" disabled={uploading} onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+        <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-2xl bg-primary text-primary-foreground glow-primary">
+          {uploading ? <Loader2 className="h-8 w-8 animate-spin" /> : <Upload className="h-8 w-8" strokeWidth={2.5} />}
+        </div>
+        <p className="font-bold">{uploading ? "جاري الرفع..." : "اضغط لاختيار ملف"}</p>
+        <p className="mt-1 text-xs text-muted-foreground">.xlsx أو .xls</p>
+        {progress && (
+          <div className="mt-4">
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full bg-primary transition-all" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+            </div>
+            <p className="mt-2 text-xs">{progress.done.toLocaleString("ar-EG")} / {progress.total.toLocaleString("ar-EG")}</p>
+          </div>
+        )}
+      </label>
+
+      <div className="mt-8">
+        <h2 className="mb-3 text-sm font-bold text-muted-foreground">الدفعات السابقة</h2>
+        <AnimatePresence>
+          {batches && batches.length > 0 ? (
+            <div className="space-y-2">
+              {batches.map((b) => (
+                <motion.div key={b.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} className="glass flex items-center gap-3 rounded-2xl p-3">
+                  <FileSpreadsheet className="h-8 w-8 shrink-0 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold">{b.file_name}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      <CheckCircle2 className="ml-1 inline h-3 w-3 text-success" />
+                      {b.plates_count.toLocaleString("ar-EG")} لوحة • {new Date(b.created_at).toLocaleString("ar-EG")}
+                    </p>
+                  </div>
+                  <button onClick={() => deleteBatch(b.id)} className="shrink-0 rounded-lg p-2 text-destructive hover:bg-destructive/10">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-2xl bg-muted/50 p-6 text-center text-sm text-muted-foreground">لا توجد دفعات بعد</p>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
