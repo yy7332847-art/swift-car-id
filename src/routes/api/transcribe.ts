@@ -1,0 +1,49 @@
+import { createFileRoute } from "@tanstack/react-router";
+
+// Transcribe an uploaded audio blob using Lovable AI Gateway (openai/gpt-4o-transcribe).
+// Requires Authorization: Bearer <supabase access token> so we can attribute the call.
+export const Route = createFileRoute("/api/transcribe")({
+  server: {
+    handlers: {
+      POST: async ({ request }) => {
+        const key = process.env.LOVABLE_API_KEY;
+        if (!key) return new Response(JSON.stringify({ error: "AI key not configured" }), { status: 500 });
+
+        const authHeader = request.headers.get("authorization") ?? "";
+        if (!authHeader.startsWith("Bearer ")) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        }
+
+        const inForm = await request.formData();
+        const audio = inForm.get("audio");
+        if (!(audio instanceof File) && !(audio instanceof Blob)) {
+          return new Response(JSON.stringify({ error: "No audio" }), { status: 400 });
+        }
+
+        const upstream = new FormData();
+        const name = (audio as File).name || "recording.wav";
+        upstream.append("model", "openai/gpt-4o-transcribe");
+        upstream.append("file", audio, name);
+        upstream.append("language", "ar");
+        upstream.append("prompt", "أرقام لوحات سيارات سعودية: ثلاثة حروف عربية ثم أربعة أرقام. مثال: أ ب ت ٤٢٢٢، حنق ٢٠١٤، ب ب د ٢٦٠٤.");
+
+        try {
+          const res = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${key}` },
+            body: upstream,
+          });
+          const bodyText = await res.text();
+          if (!res.ok) {
+            console.error("STT gateway error", res.status, bodyText);
+            return new Response(JSON.stringify({ error: bodyText || "Transcription failed", status: res.status }), { status: res.status });
+          }
+          return new Response(bodyText, { headers: { "Content-Type": "application/json" } });
+        } catch (err) {
+          console.error(err);
+          return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+        }
+      },
+    },
+  },
+});

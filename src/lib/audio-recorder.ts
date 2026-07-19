@@ -1,0 +1,116 @@
+// Continuous mic capture → periodic self-contained WAV blobs.
+// Every `chunkSeconds` we hand off a WAV to the callback, and start a fresh buffer.
+// Uses Web Audio API for cross-browser reliability (iOS Safari included).
+
+export interface RecorderOptions {
+  chunkSeconds: number;
+  targetSampleRate?: number; // default 16000
+  onChunk: (wav: Blob) => void;
+  onLevel?: (level: number) => void;
+}
+
+export interface RecorderHandle {
+  stop: () => Promise<void>;
+}
+
+function encodeWav(samples: Float32Array, sampleRate: number): Blob {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeStr = (o: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+function downsample(input: Float32Array, inRate: number, outRate: number): Float32Array {
+  if (outRate >= inRate) return input;
+  const ratio = inRate / outRate;
+  const outLen = Math.floor(input.length / ratio);
+  const out = new Float32Array(outLen);
+  let o = 0, i = 0;
+  while (o < outLen) {
+    const nextI = Math.floor((o + 1) * ratio);
+    let sum = 0, count = 0;
+    for (let j = i; j < nextI && j < input.length; j++) { sum += input[j]; count++; }
+    out[o] = count > 0 ? sum / count : 0;
+    o++; i = nextI;
+  }
+  return out;
+}
+
+export async function startRecorder(opts: RecorderOptions): Promise<RecorderHandle> {
+  const targetRate = opts.targetSampleRate ?? 16000;
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  const ac = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  const source = ac.createMediaStreamSource(stream);
+  const processor = ac.createScriptProcessor(4096, 1, 1);
+
+  let buffer: Float32Array[] = [];
+  let lastFlush = performance.now();
+  let bufSamples = 0;
+
+  processor.onaudioprocess = (e) => {
+    const ch = e.inputBuffer.getChannelData(0);
+    // level (RMS)
+    if (opts.onLevel) {
+      let sum = 0;
+      for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i];
+      opts.onLevel(Math.sqrt(sum / ch.length));
+    }
+    buffer.push(new Float32Array(ch));
+    bufSamples += ch.length;
+
+    if (performance.now() - lastFlush >= opts.chunkSeconds * 1000) {
+      flush();
+    }
+  };
+
+  function flush() {
+    if (bufSamples < ac.sampleRate * 0.5) return; // skip tiny chunks
+    const merged = new Float32Array(bufSamples);
+    let o = 0;
+    for (const b of buffer) { merged.set(b, o); o += b.length; }
+    buffer = []; bufSamples = 0;
+    lastFlush = performance.now();
+    const ds = downsample(merged, ac.sampleRate, targetRate);
+    // Silence check: skip if RMS < threshold
+    let sum = 0;
+    for (let i = 0; i < ds.length; i++) sum += ds[i] * ds[i];
+    const rms = Math.sqrt(sum / ds.length);
+    if (rms < 0.005) return;
+    const wav = encodeWav(ds, targetRate);
+    opts.onChunk(wav);
+  }
+
+  source.connect(processor);
+  processor.connect(ac.destination);
+
+  return {
+    stop: async () => {
+      flush();
+      processor.disconnect();
+      source.disconnect();
+      stream.getTracks().forEach((t) => t.stop());
+      await ac.close();
+    },
+  };
+}
