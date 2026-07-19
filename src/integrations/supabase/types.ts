@@ -14,16 +14,265 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      detected_plates: {
+        Row: {
+          detected_at: string
+          id: string
+          is_incomplete: boolean
+          is_matched: boolean
+          matched_plate_id: string | null
+          plate_normalized: string | null
+          plate_raw: string | null
+          session_id: string
+          spoken_text: string | null
+          user_id: string
+        }
+        Insert: {
+          detected_at?: string
+          id?: string
+          is_incomplete?: boolean
+          is_matched?: boolean
+          matched_plate_id?: string | null
+          plate_normalized?: string | null
+          plate_raw?: string | null
+          session_id: string
+          spoken_text?: string | null
+          user_id: string
+        }
+        Update: {
+          detected_at?: string
+          id?: string
+          is_incomplete?: boolean
+          is_matched?: boolean
+          matched_plate_id?: string | null
+          plate_normalized?: string | null
+          plate_raw?: string | null
+          session_id?: string
+          spoken_text?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "detected_plates_matched_plate_id_fkey"
+            columns: ["matched_plate_id"]
+            isOneToOne: false
+            referencedRelation: "plates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "detected_plates_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "recognition_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plate_batches: {
+        Row: {
+          created_at: string
+          file_name: string
+          id: string
+          plates_count: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          id?: string
+          plates_count?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          id?: string
+          plates_count?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      plates: {
+        Row: {
+          bank: string | null
+          batch_id: string
+          car_type: string | null
+          chassis: string | null
+          created_at: string
+          digits: string | null
+          id: string
+          letters: string | null
+          plate_date: string | null
+          plate_normalized: string
+          plate_raw: string
+          user_id: string
+        }
+        Insert: {
+          bank?: string | null
+          batch_id: string
+          car_type?: string | null
+          chassis?: string | null
+          created_at?: string
+          digits?: string | null
+          id?: string
+          letters?: string | null
+          plate_date?: string | null
+          plate_normalized: string
+          plate_raw: string
+          user_id: string
+        }
+        Update: {
+          bank?: string | null
+          batch_id?: string
+          car_type?: string | null
+          chassis?: string | null
+          created_at?: string
+          digits?: string | null
+          id?: string
+          letters?: string | null
+          plate_date?: string | null
+          plate_normalized?: string
+          plate_raw?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plates_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "plate_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
+      recognition_sessions: {
+        Row: {
+          ended_at: string | null
+          id: string
+          notes: string | null
+          started_at: string
+          total_detected: number
+          total_incomplete: number
+          total_matched: number
+          user_id: string
+        }
+        Insert: {
+          ended_at?: string | null
+          id?: string
+          notes?: string | null
+          started_at?: string
+          total_detected?: number
+          total_incomplete?: number
+          total_matched?: number
+          user_id: string
+        }
+        Update: {
+          ended_at?: string | null
+          id?: string
+          notes?: string | null
+          started_at?: string
+          total_detected?: number
+          total_incomplete?: number
+          total_matched?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      subscriptions: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          starts_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          starts_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          starts_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      activate_subscription: {
+        Args: { _days: number; _user_id: string }
+        Returns: undefined
+      }
+      deactivate_subscription: {
+        Args: { _user_id: string }
+        Returns: undefined
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +399,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+    },
   },
 } as const
