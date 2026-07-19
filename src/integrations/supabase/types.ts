@@ -16,6 +16,8 @@ export type Database = {
     Tables: {
       detected_plates: {
         Row: {
+          confidence: number | null
+          correction_note: string | null
           detected_at: string
           id: string
           is_incomplete: boolean
@@ -25,9 +27,12 @@ export type Database = {
           plate_raw: string | null
           session_id: string
           spoken_text: string | null
+          suspect_part: string | null
           user_id: string
         }
         Insert: {
+          confidence?: number | null
+          correction_note?: string | null
           detected_at?: string
           id?: string
           is_incomplete?: boolean
@@ -37,9 +42,12 @@ export type Database = {
           plate_raw?: string | null
           session_id: string
           spoken_text?: string | null
+          suspect_part?: string | null
           user_id: string
         }
         Update: {
+          confidence?: number | null
+          correction_note?: string | null
           detected_at?: string
           id?: string
           is_incomplete?: boolean
@@ -49,6 +57,7 @@ export type Database = {
           plate_raw?: string | null
           session_id?: string
           spoken_text?: string | null
+          suspect_part?: string | null
           user_id?: string
         }
         Relationships: [
@@ -70,23 +79,29 @@ export type Database = {
       }
       plate_batches: {
         Row: {
+          activated_at: string | null
           created_at: string
           file_name: string
           id: string
+          is_active: boolean
           plates_count: number
           user_id: string
         }
         Insert: {
+          activated_at?: string | null
           created_at?: string
           file_name: string
           id?: string
+          is_active?: boolean
           plates_count?: number
           user_id: string
         }
         Update: {
+          activated_at?: string | null
           created_at?: string
           file_name?: string
           id?: string
+          is_active?: boolean
           plates_count?: number
           user_id?: string
         }
@@ -269,6 +284,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      set_active_plate_batch: {
+        Args: { _batch_id: string }
+        Returns: undefined
       }
     }
     Enums: {
