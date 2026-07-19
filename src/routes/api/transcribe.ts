@@ -22,10 +22,12 @@ export const Route = createFileRoute("/api/transcribe")({
 
 
         const upstream = new FormData();
-        const name = (audio as File).name || "recording.wav";
+        const asFile = audio as File;
+        const name = asFile.name || "recording.wav";
         upstream.append("model", "openai/gpt-4o-transcribe");
-        upstream.append("file", audio, name);
+        upstream.append("file", audio as Blob, name);
         upstream.append("language", "ar");
+
         upstream.append("prompt", "أرقام لوحات سيارات سعودية: ثلاثة حروف عربية ثم أربعة أرقام. مثال: أ ب ت ٤٢٢٢، حنق ٢٠١٤، ب ب د ٢٦٠٤.");
 
         try {
