@@ -94,7 +94,7 @@ function StatCard({ icon: Icon, label, value }: { icon: React.ComponentType<{ cl
   );
 }
 
-function ActionCard({ to, icon: Icon, title, desc, primary }: { to: string; icon: React.ComponentType<{ className?: string }>; title: string; desc: string; primary?: boolean }) {
+function ActionCard({ to, icon: Icon, title, desc, primary }: { to: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; title: string; desc: string; primary?: boolean }) {
   return (
     <Link to={to} className={`glass block rounded-2xl p-4 transition-all active:scale-95 ${primary ? "border border-primary/40 glow-primary" : ""}`}>
       <Icon className={`mb-2 h-6 w-6 ${primary ? "text-primary" : "text-foreground"}`} strokeWidth={2.5} />

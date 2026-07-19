@@ -16,9 +16,10 @@ export const Route = createFileRoute("/api/transcribe")({
 
         const inForm = await request.formData();
         const audio = inForm.get("audio");
-        if (!(audio instanceof File) && !(audio instanceof Blob)) {
+        if (!audio || typeof audio === "string") {
           return new Response(JSON.stringify({ error: "No audio" }), { status: 400 });
         }
+
 
         const upstream = new FormData();
         const name = (audio as File).name || "recording.wav";
