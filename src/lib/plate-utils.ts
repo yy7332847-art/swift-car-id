@@ -105,7 +105,10 @@ function parseArabicNumberRun(words: string[], startIdx: number): { value: strin
     directSeq += d;
     directConsumed++;
   }
-  if (directSeq.length >= 2) return { value: directSeq.slice(0, 4), consumed: directConsumed };
+  if (directSeq.length >= 2) {
+    const fixed = repairPlateZero(directSeq.slice(0, 4), words.slice(startIdx, startIdx + directConsumed).join(" "));
+    return { ...fixed, consumed: directConsumed };
+  }
 
   type Cand = { value: string; consumed: number; suspectPart?: string; correctionNote?: string };
   const candidates: Cand[] = [];
