@@ -512,7 +512,12 @@ function RecordPage() {
       if (!u.user) throw new Error("غير مسجّل");
       const matched = current.filter((e) => e.matchedPlate).length;
       const incomplete = current.filter((e) => !e.complete).length;
-      const first = pathRef.current[0];
+      const platePath = [...current]
+        .reverse()
+        .filter((e) => e.latitude != null && e.longitude != null)
+        .map((e) => ({ lat: e.latitude!, lng: e.longitude!, t: e.spokenAt }));
+      const finalPath = pathRef.current.length >= 2 ? pathRef.current : platePath.length > 0 ? platePath : currentPosRef.current ? [currentPosRef.current] : [];
+      const first = finalPath[0];
       const { data: saved, error } = await supabase
         .from("recognition_sessions")
         .insert({
@@ -522,7 +527,7 @@ function RecordPage() {
           total_detected: current.length,
           total_matched: matched,
           total_incomplete: incomplete,
-          path: pathRef.current as unknown as never,
+          path: finalPath as unknown as never,
           start_latitude: first?.lat ?? null,
           start_longitude: first?.lng ?? null,
           notes: transcript.slice(0, 1800),
