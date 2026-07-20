@@ -220,21 +220,29 @@ function RecordPage() {
   const processChunk = useCallback(async (wav: Blob) => {
     pendingRef.current++;
     setProcessing(true);
+    const t0 = performance.now();
+    const chunkGap = lastChunkAtRef.current ? t0 - lastChunkAtRef.current : 0;
+    lastChunkAtRef.current = t0;
+    let sttMs = 0, parseMs = 0, matchMs = 0, textLen = 0;
     try {
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       if (!token || !sessionIdRef.current) return;
       const form = new FormData();
       form.append("audio", wav, "chunk.wav");
+      const tStt = performance.now();
       const res = await fetch("/api/transcribe", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
       if (!res.ok) {
         console.error("STT", res.status, await res.text().catch(() => ""));
         return;
       }
       const json = await res.json();
+      sttMs = performance.now() - tStt;
       const text: string = (json.text || "").trim();
+      textLen = text.length;
       if (!text || text.length < 2) return;
       setTranscript((prev) => (prev + " " + text).trim().slice(-3000));
+      const tParse = performance.now();
       const plates = extractPlates(text);
       if (plates.length === 0) return;
 
