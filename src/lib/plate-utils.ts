@@ -84,8 +84,14 @@ function parseNaturalNumber(words: string[], start: number): { value: string; co
 }
 
 function parseArabicNumberRun(words: string[], startIdx: number): { value: string; consumed: number; suspectPart?: string; correctionNote?: string } {
-  const d = directDigits(words[startIdx] ?? "");
-  if (d) return { value: d.slice(0, 4), consumed: 1 };
+  let directSeq = "", directConsumed = 0;
+  for (let i = startIdx; i < words.length && directSeq.length < 4; i++) {
+    const d = directDigits(words[i] ?? "");
+    if (!d) break;
+    directSeq += d;
+    directConsumed++;
+  }
+  if (directSeq.length >= 2) return { value: directSeq.slice(0, 4), consumed: directConsumed };
 
   type Cand = { value: string; consumed: number; suspectPart?: string; correctionNote?: string };
   const candidates: Cand[] = [];
