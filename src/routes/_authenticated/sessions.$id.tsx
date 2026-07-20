@@ -68,7 +68,7 @@ function SessionDetailPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("detected_plates")
-        .select("id, plate_raw, plate_normalized, is_matched, is_incomplete, detected_at, matched_plate_id, latitude, longitude, plates:matched_plate_id(plate_raw, bank, car_type, chassis, plate_date)")
+        .select("id, plate_raw, plate_normalized, is_matched, is_incomplete, detected_at, matched_plate_id, latitude, longitude, duplicate_of_id, duplicate_decision, duplicate_distance_m, duplicate_gap_seconds, plates:matched_plate_id(plate_raw, bank, car_type, chassis, plate_date)")
         .eq("session_id", id)
         .order("detected_at", { ascending: true });
       return (data ?? []) as unknown as DetectedRow[];
