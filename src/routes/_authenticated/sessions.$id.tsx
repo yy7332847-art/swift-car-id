@@ -26,6 +26,10 @@ interface DetectedRow {
   matched_plate_id: string | null;
   latitude: number | null;
   longitude: number | null;
+  duplicate_of_id: string | null;
+  duplicate_decision: "same" | "different" | "unresolved" | null;
+  duplicate_distance_m: number | null;
+  duplicate_gap_seconds: number | null;
   plates?: {
     plate_raw: string;
     bank: string | null;
