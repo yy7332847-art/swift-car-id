@@ -337,7 +337,54 @@ function SessionDetailPage() {
         </button>
       </div>
 
+      {dupRows.length > 0 && (
+        <div className="mb-5 glass rounded-2xl border border-warning/30 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="flex items-center gap-1.5 text-sm font-black">
+              <Copy className="h-4 w-4 text-warning" /> تفاصيل التكرارات
+            </h2>
+            <span className="text-[10.5px] text-muted-foreground">{dupRows.length} سجل</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-border text-right text-muted-foreground">
+                  <th className="py-1.5 pr-1 font-bold">اللوحة</th>
+                  <th className="py-1.5 font-bold">الأصل</th>
+                  <th className="py-1.5 font-bold">الفاصل</th>
+                  <th className="py-1.5 font-bold">المسافة</th>
+                  <th className="py-1.5 font-bold">القرار</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dupRows.map((d) => {
+                  const orig = d.duplicate_of_id ? origById.get(d.duplicate_of_id) : null;
+                  const decision = d.duplicate_decision;
+                  const decisionLabel = decision === "same" ? "دُمج (نفس السيارة)" : decision === "different" ? "سيارة مختلفة" : "بحاجة مراجعة";
+                  const decisionCls = decision === "same" ? "bg-warning/15 text-warning" : decision === "different" ? "bg-success/15 text-success" : "bg-primary/15 text-primary";
+                  const gap = d.duplicate_gap_seconds ?? null;
+                  const dist = d.duplicate_distance_m ?? null;
+                  return (
+                    <tr key={d.id} className="border-b border-border/40 last:border-0">
+                      <td className="py-1.5 pr-1 font-mono font-bold" dir="rtl">{d.plate_raw ?? "—"}</td>
+                      <td className="py-1.5 font-mono text-muted-foreground" dir="rtl">{orig?.plate_raw ?? "—"}</td>
+                      <td className="py-1.5 tabular-nums text-muted-foreground">{gap != null ? formatGapAr(gap) : "—"}</td>
+                      <td className="py-1.5 tabular-nums text-muted-foreground">{dist != null ? formatDistAr(dist) : "—"}</td>
+                      <td className="py-1.5"><span className={`rounded-md px-1.5 py-0.5 text-[10px] font-black ${decisionCls}`}>{decisionLabel}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[10.5px] leading-5 text-muted-foreground">
+            تُعتبر اللوحة تكراراً إذا التُقطت في نفس الجلسة خلال نافذة زمنية قصيرة ومسافة قريبة من التقاطها الأول. القرار "دُمج" لا يُحسب ضمن السيارات الفريدة، بينما "سيارة مختلفة" يُحسب مستقلاً.
+          </p>
+        </div>
+      )}
+
       <div className="space-y-2 pb-6">
+
         {filtered.map((d, i) => (
           <motion.div
             id={`plate-${d.id}`}
