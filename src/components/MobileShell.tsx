@@ -5,6 +5,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTheme } from "@/lib/theme";
 import { ExpiryBanner } from "@/components/ExpiryBanner";
+import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
+import { startSyncEngine } from "@/lib/sync-queue";
 
 interface Tab {
   to: string;
