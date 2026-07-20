@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { motion } from "motion/react";
 import {
   ShieldCheck, User as UserIcon, CheckCircle2, XCircle, Ban, Users, Package as PackageIcon,
-  Inbox, Trash2, Plus, Pencil, Save, ShieldOff, Sparkles, Gift, Send, Clock, AlertTriangle,
+  Inbox, Trash2, Plus, Pencil, Save, ShieldOff, Sparkles, Gift, Send, Clock, AlertTriangle, History,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -13,7 +13,7 @@ export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminPage,
 });
 
-type Tab = "users" | "packages" | "requests";
+type Tab = "users" | "packages" | "requests" | "audit";
 
 function AdminPage() {
   const [tab, setTab] = useState<Tab>("users");
