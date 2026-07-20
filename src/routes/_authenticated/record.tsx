@@ -693,10 +693,11 @@ function RecordPage() {
         </div>
       )}
 
-      <div className="mb-3 grid grid-cols-3 gap-2 text-center">
+      <div className="mb-3 grid grid-cols-4 gap-2 text-center">
         <div className="glass rounded-xl p-2"><p className="text-lg font-black">{entries.length}</p><p className="text-[10px] text-muted-foreground">مكتشفة</p></div>
         <div className="glass rounded-xl p-2 border border-success/40"><p className="text-lg font-black text-success">{entries.filter((e) => e.matchedPlate).length}</p><p className="text-[10px] text-muted-foreground">مطابقة</p></div>
         <div className="glass rounded-xl p-2 border border-warning/40"><p className="text-lg font-black text-warning">{entries.filter((e) => !e.complete).length}</p><p className="text-[10px] text-muted-foreground">غير مكتملة</p></div>
+        <div className="glass rounded-xl p-2 border border-primary/40"><p className="text-lg font-black text-primary tabular-nums">{entries.filter((e) => e.duplicateOfId && e.duplicateDecision === "same").length}</p><p className="text-[10px] text-muted-foreground">مكرّرة</p></div>
       </div>
 
       <div className="mb-3 grid grid-cols-3 gap-2 text-center">
