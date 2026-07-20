@@ -77,10 +77,11 @@ function SessionDetailPage() {
     return detected;
   }, [detected, filter]);
 
-  const path: GeoPoint[] = useMemo(() => {
+  const rawPath: GeoPoint[] = useMemo(() => {
     const raw = (session?.path as unknown as GeoPoint[] | undefined) ?? [];
     return Array.isArray(raw) ? raw.filter((p) => typeof p?.lat === "number" && typeof p?.lng === "number") : [];
   }, [session]);
+  const path: GeoPoint[] = useRebuilt && rebuilt ? rebuilt : rawPath;
 
   const markers = useMemo(() => filtered
     .filter((d) => d.latitude != null && d.longitude != null)
