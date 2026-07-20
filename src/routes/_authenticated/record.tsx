@@ -582,7 +582,8 @@ function RecordPage() {
       {!recording && reviewOpen && <SessionPreview entries={entries} transcript={transcript} elapsed={elapsed} saving={saving} onSave={saveReviewedSession} onDiscard={discardDraft} onDownload={exportCurrentPDF} />}
 
       <div className="flex-1 space-y-2 pb-4">
-        <AnimatePresence initial={false}>{entries.map((e) => <PlateCard key={e.id} entry={e} />)}</AnimatePresence>
+        <AnimatePresence initial={false}>{entries.slice(0, 80).map((e) => <PlateCard key={e.id} entry={e} />)}</AnimatePresence>
+        {entries.length > 80 && <p className="text-center text-[10px] text-muted-foreground">عرض أحدث 80 لوحة — الكل يظهر في تقرير الجلسة</p>}
         {entries.length === 0 && !recording && <div className="rounded-2xl bg-muted/30 p-6 text-center text-sm text-muted-foreground"><Info className="mx-auto mb-2 h-6 w-6" />اضغط زر الميكروفون وابدأ بنطق أرقام اللوحات</div>}
       </div>
 
