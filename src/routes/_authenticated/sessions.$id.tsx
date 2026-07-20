@@ -8,6 +8,7 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { TrackingMap, openInMaps } from "@/components/TrackingMap";
+import { ExportPreview } from "@/components/ExportPreview";
 import { pathToGPX, pathToKML, shareOrDownload, rebuildPath, type GeoPoint, type PlateWaypoint } from "@/lib/geo";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -47,6 +48,7 @@ function SessionDetailPage() {
   const [rebuilt, setRebuilt] = useState<GeoPoint[] | null>(null);
   const [rebuildProgress, setRebuildProgress] = useState<number | null>(null);
   const [useRebuilt, setUseRebuilt] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const playRef = useRef<number | null>(null);
 
   const { data: session } = useQuery({
@@ -267,14 +269,12 @@ function SessionDetailPage() {
                 <input type="checkbox" checked={includeWaypoints} onChange={(e) => setIncludeWaypoints(e.target.checked)} className="accent-primary" />
                 إدراج نقاط اللوحات كمحددات في GPX/KML
               </label>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <button onClick={() => exportTrack("gpx")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
-                  <Share2 className="h-3.5 w-3.5 text-primary" /> مشاركة GPX
-                </button>
-                <button onClick={() => exportTrack("kml")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
-                  <MapIcon className="h-3.5 w-3.5 text-success" /> مشاركة KML
-                </button>
-              </div>
+              <button
+                onClick={() => setPreviewOpen(true)}
+                className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary p-2.5 text-xs font-black text-primary-foreground shadow-md shadow-primary/20"
+              >
+                <MapIcon className="h-3.5 w-3.5" /> معاينة وتصدير المسار (GPX/KML)
+              </button>
               <div className="mt-3 rounded-2xl border border-primary/30 bg-primary/5 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-black"><Wand2 className="h-3.5 w-3.5 text-primary" /> إعادة بناء بيانات الخريطة</span>
