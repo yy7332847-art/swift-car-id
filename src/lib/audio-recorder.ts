@@ -5,9 +5,11 @@
 export interface RecorderOptions {
   chunkSeconds: number;
   targetSampleRate?: number; // default 16000
+  overlapSeconds?: number; // default 0.4
   onChunk: (wav: Blob) => void;
   onLevel?: (level: number) => void;
 }
+
 
 export interface RecorderHandle {
   stop: () => Promise<void>;
@@ -69,7 +71,7 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   let bufSamples = 0;
   // Overlap tail — retain the last ~0.4s of samples so a plate cut across chunks is still decoded.
   let overlap: Float32Array | null = null;
-  const overlapSeconds = 0.4;
+  const overlapSeconds = opts.overlapSeconds ?? 0.4;
 
   processor.onaudioprocess = (e) => {
     const ch = e.inputBuffer.getChannelData(0);

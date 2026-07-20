@@ -83,27 +83,51 @@ function parseNaturalNumber(words: string[], start: number): { value: string; co
 
 function parseArabicNumberRun(words: string[], startIdx: number): { value: string; consumed: number; suspectPart?: string; correctionNote?: string } {
   const d = directDigits(words[startIdx] ?? "");
-  if (d) return { value: d, consumed: 1 };
+  if (d) return { value: d.slice(0, 4), consumed: 1 };
+
+  type Cand = { value: string; consumed: number; suspectPart?: string; correctionNote?: string };
+  const candidates: Cand[] = [];
+
+  // Strategy A: pure sequence of single-digit words ("اربعة اثنين اربعة اثنين")
   let seq = "", seqConsumed = 0;
-  for (let i = startIdx; i < words.length; i++) {
+  for (let i = startIdx; i < words.length && seq.length < 4; i++) {
     const w = stripWa(words[i]);
     if (DIGIT_WORDS[w] === undefined) break;
     seq += DIGIT_WORDS[w]; seqConsumed++;
   }
-  if (seq.length >= 2) return { value: seq, consumed: seqConsumed };
-  const h1 = HUNDREDS[stripWa(words[startIdx] ?? "")], h2 = HUNDREDS[stripWa(words[startIdx + 1] ?? "")];
-  if (h1 && h2) return { value: `${Math.floor(h1 / 100)}${Math.floor(h2 / 100)}00`, consumed: 2, suspectPart: words.slice(startIdx, startIdx + 2).join(" "), correctionNote: "تم تفسير نطق المئات المتكرر كأربعة أرقام" };
+  if (seq.length >= 2) candidates.push({ value: seq, consumed: seqConsumed });
+
+  // Strategy B: two two-digit groups ("اثنين واربعين اتنين وعشرين")
   const groups: string[] = [];
   let groupConsumed = 0;
-  for (let i = startIdx; i < words.length;) {
-    const group = parseTwoDigitGroup(words, i);
-    if (!group) break;
-    groups.push(group.value.toString().padStart(groups.length ? 2 : 1, "0"));
-    i += group.consumed; groupConsumed += group.consumed;
+  for (let i = startIdx; i < words.length && groups.length < 2;) {
+    const g = parseTwoDigitGroup(words, i);
+    if (!g) break;
+    groups.push(g.value.toString().padStart(groups.length ? 2 : 1, "0"));
+    i += g.consumed; groupConsumed += g.consumed;
   }
-  if (groups.length >= 2) return { value: groups.join("").slice(0, 4), consumed: groupConsumed };
-  return parseNaturalNumber(words, startIdx);
+  if (groups.length >= 2) candidates.push({ value: groups.join("").slice(0, 4), consumed: groupConsumed });
+
+  // Strategy C: natural number ("اربعة الاف ومئتين واثنين")
+  const nat = parseNaturalNumber(words, startIdx);
+  if (nat.value) candidates.push({ value: nat.value.padStart(nat.value.length >= 4 ? nat.value.length : 4, "0").slice(-4), consumed: nat.consumed });
+
+  // Special: two consecutive hundreds words (e.g. "ميتين ميتين" = 2200)
+  const h1 = HUNDREDS[stripWa(words[startIdx] ?? "")], h2 = HUNDREDS[stripWa(words[startIdx + 1] ?? "")];
+  if (h1 && h2) candidates.push({
+    value: `${Math.floor(h1 / 100)}${Math.floor(h2 / 100)}00`,
+    consumed: 2,
+    suspectPart: words.slice(startIdx, startIdx + 2).join(" "),
+    correctionNote: "تم تفسير نطق المئات المتكرر كأربعة أرقام",
+  });
+
+  if (candidates.length === 0) return { value: "", consumed: 0 };
+  // Prefer the longest digit value (up to 4), then the one that consumed the most words.
+  candidates.sort((a, b) => Math.min(4, b.value.length) - Math.min(4, a.value.length) || b.consumed - a.consumed);
+  const best = candidates[0];
+  return { ...best, value: best.value.slice(0, 4) };
 }
+
 
 export interface DetectedPlate { raw: string; normalized: string; letters: string; digits: string; complete: boolean; confidence: number; suspectPart?: string; correctionNote?: string; }
 
