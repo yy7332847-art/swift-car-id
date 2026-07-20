@@ -86,7 +86,7 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
         // Upsert by (user_id, client_id) unique index.
         const { data, error } = await supabase
           .from("recognition_sessions")
-          .upsert({ ...s.payload, client_id: s.client_id, user_id: s.user_id }, { onConflict: "user_id,client_id" })
+          .upsert({ ...s.payload, client_id: s.client_id, user_id: s.user_id } as unknown as never, { onConflict: "user_id,client_id" })
           .select("id")
           .single();
         if (error || !data) throw error ?? new Error("upsert failed");
@@ -103,7 +103,7 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
           }));
           const { error: pErr } = await supabase
             .from("detected_plates")
-            .upsert(rows, { onConflict: "user_id,client_id" });
+            .upsert(rows as unknown as never, { onConflict: "user_id,client_id" });
           if (pErr) throw pErr;
           await deletePlatesFor(s.client_id);
           pushed += plates.length;
@@ -133,7 +133,7 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
           const rows = arr.map((p) => ({ ...p.payload, user_id: p.user_id, client_id: p.client_id }));
           const { error } = await supabase
             .from("detected_plates")
-            .upsert(rows, { onConflict: "user_id,client_id" });
+            .upsert(rows as unknown as never, { onConflict: "user_id,client_id" });
           if (error) throw error;
           for (const p of arr) await deletePlate(p.client_id);
           pushed += arr.length;
