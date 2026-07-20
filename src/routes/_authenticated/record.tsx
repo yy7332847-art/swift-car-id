@@ -176,11 +176,15 @@ function RecordPage() {
 
   useEffect(() => {
     if (!startedAt || !sessionId) return;
-    const draft: DraftSession = { draftId: sessionId, userId: "", startedAt, entries, transcript, path, wasRecording: recording, reviewOpen };
-    supabase.auth.getUser().then(({ data }) => {
-      draft.userId = data.user?.id ?? "";
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-    }).catch(() => undefined);
+    if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = window.setTimeout(() => {
+      const draft: DraftSession = { draftId: sessionId, userId: "", startedAt, entries, transcript, path, wasRecording: recording, reviewOpen };
+      supabase.auth.getUser().then(({ data }) => {
+        draft.userId = data.user?.id ?? "";
+        try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (e) { console.warn("draft save failed", e); }
+      }).catch(() => undefined);
+    }, 600);
+    return () => { if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current); };
   }, [entries, path, recording, reviewOpen, sessionId, startedAt, transcript]);
 
   useEffect(() => {
