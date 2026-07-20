@@ -2,13 +2,14 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "motion/react";
-import { ChevronRight, Download, FileText, CheckCircle2, AlertTriangle, Car, MapPin, ExternalLink } from "lucide-react";
+import { ChevronRight, Download, FileText, CheckCircle2, AlertTriangle, Car, MapPin, ExternalLink, Play, Pause, Share2, Map as MapIcon } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { TrackingMap, type GeoPoint, openInMaps } from "@/components/TrackingMap";
-import { useMemo, useState } from "react";
+import { TrackingMap, openInMaps } from "@/components/TrackingMap";
+import { pathToGPX, pathToKML, shareOrDownload, type GeoPoint } from "@/lib/geo";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/sessions/$id")({
   component: SessionDetailPage,
@@ -39,6 +40,10 @@ function SessionDetailPage() {
   const { id } = Route.useParams();
   const [filter, setFilter] = useState<Filter>("all");
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [playbackIdx, setPlaybackIdx] = useState<number | null>(null);
+  const [speed, setSpeed] = useState(1);
+  const playRef = useRef<number | null>(null);
 
   const { data: session } = useQuery({
     queryKey: ["session", id],
@@ -82,6 +87,44 @@ function SessionDetailPage() {
       label: d.plate_raw ?? "",
       status: d.is_matched ? "matched" as const : d.is_incomplete ? "incomplete" as const : "detected" as const,
     })), [filtered]);
+
+  // Playback tick
+  useEffect(() => {
+    if (!playing || path.length < 2) return;
+    let i = playbackIdx ?? 0;
+    if (i >= path.length - 1) i = 0;
+    setPlaybackIdx(i);
+    const step = () => {
+      i++;
+      if (i >= path.length) { setPlaying(false); return; }
+      setPlaybackIdx(i);
+      const cur = path[i], prev = path[i - 1];
+      const dtReal = cur.t && prev.t ? Math.max(80, Math.min(1200, (cur.t - prev.t) / speed)) : 350 / speed;
+      playRef.current = window.setTimeout(step, dtReal);
+    };
+    playRef.current = window.setTimeout(step, 400 / speed);
+    return () => { if (playRef.current) window.clearTimeout(playRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, speed, path.length]);
+
+  function togglePlay() {
+    if (path.length < 2) { toast.info("لا يوجد مسار كافٍ للتشغيل"); return; }
+    if (playing) { setPlaying(false); return; }
+    setFocusId(null);
+    setPlaying(true);
+  }
+
+  function resetPlayback() { setPlaying(false); setPlaybackIdx(null); }
+
+  async function exportTrack(kind: "gpx" | "kml") {
+    if (path.length < 2) { toast.info("لا توجد إحداثيات كافية للتصدير"); return; }
+    const name = `session-${id.slice(0, 8)}.${kind}`;
+    const label = `PlateCheck ${new Date(session?.started_at ?? Date.now()).toLocaleString()}`;
+    const content = kind === "gpx" ? pathToGPX(path, label) : pathToKML(path, label);
+    const mime = kind === "gpx" ? "application/gpx+xml" : "application/vnd.google-earth.kml+xml";
+    const result = await shareOrDownload(name, content, mime);
+    toast.success(result === "shared" ? "تمت المشاركة" : "تم تنزيل الملف");
+  }
 
   function exportExcel() {
     if (!detected) return;
@@ -156,19 +199,55 @@ function SessionDetailPage() {
 
       {(path.length > 0 || markers.length > 0) && (
         <div className="mb-4">
-          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground">
-            <MapPin className="h-3.5 w-3.5 text-primary" /> مسار العربية على الخريطة
+          <div className="mb-1.5 flex items-center justify-between text-[11px] font-bold text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-primary" /> مسار العربية على الخريطة</span>
+            {path.length >= 2 && (
+              <span className="tabular-nums">
+                {playbackIdx != null ? `${playbackIdx + 1}/${path.length}` : `${path.length} نقطة`}
+              </span>
+            )}
           </div>
           <TrackingMap
             path={path}
             markers={markers}
-            height={240}
+            height={260}
+            focusId={focusId}
+            playbackIndex={playing || playbackIdx != null ? playbackIdx : null}
             onMarkerClick={(mid) => {
+              setPlaying(false);
               setFocusId(mid);
               const el = document.getElementById(`plate-${mid}`);
               el?.scrollIntoView({ behavior: "smooth", block: "center" });
             }}
           />
+          {path.length >= 2 && (
+            <div className="mt-2 flex items-center gap-2">
+              <button onClick={togglePlay} className="inline-flex items-center gap-1 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground">
+                {playing ? <><Pause className="h-3.5 w-3.5" /> إيقاف</> : <><Play className="h-3.5 w-3.5" /> تشغيل الحركة</>}
+              </button>
+              <input
+                type="range" min={0} max={path.length - 1} value={playbackIdx ?? 0}
+                onChange={(e) => { setPlaying(false); setPlaybackIdx(Number(e.target.value)); }}
+                className="flex-1 accent-primary"
+              />
+              <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="rounded-lg border border-border bg-background px-1.5 py-1.5 text-[11px] font-bold">
+                <option value={0.5}>0.5×</option><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option><option value={8}>8×</option>
+              </select>
+              {playbackIdx != null && (
+                <button onClick={resetPlayback} className="rounded-lg bg-muted px-2 py-1.5 text-[11px] font-bold">إعادة</button>
+              )}
+            </div>
+          )}
+          {path.length >= 2 && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button onClick={() => exportTrack("gpx")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
+                <Share2 className="h-3.5 w-3.5 text-primary" /> مشاركة GPX
+              </button>
+              <button onClick={() => exportTrack("kml")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
+                <MapIcon className="h-3.5 w-3.5 text-success" /> مشاركة KML
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -189,9 +268,10 @@ function SessionDetailPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: i * 0.01 }}
-            className={`glass rounded-xl p-3 transition-all ${
+            onClick={() => { setPlaying(false); setFocusId(d.id); }}
+            className={`glass rounded-xl p-3 transition-all cursor-pointer ${
               d.is_matched ? "border border-success/40" : d.is_incomplete ? "border border-warning/40" : "border border-border"
-            } ${focusId === d.id ? "ring-2 ring-primary" : ""}`}
+            } ${focusId === d.id ? "ring-2 ring-primary scale-[1.01]" : ""}`}
           >
             <div className="flex items-center gap-3">
               <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${d.is_matched ? "bg-success/20 text-success" : d.is_incomplete ? "bg-warning/20 text-warning" : "bg-muted"}`}>
@@ -207,9 +287,8 @@ function SessionDetailPage() {
               </div>
               {d.latitude != null && d.longitude != null && (
                 <button
-                  onClick={() => openInMaps(d.latitude!, d.longitude!)}
+                  onClick={(e) => { e.stopPropagation(); openInMaps(d.latitude!, d.longitude!); }}
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-primary/15 px-2 py-1.5 text-[10.5px] font-bold text-primary"
-                  title="فتح الإحداثيات على الخريطة"
                 >
                   <ExternalLink className="h-3 w-3" /> خريطة
                 </button>
@@ -228,21 +307,10 @@ function SessionDetailPage() {
 }
 
 function StatCard({ label, value, tone, active, onClick }: { label: string; value: number; tone?: "success" | "warning" | "muted"; active?: boolean; onClick?: () => void }) {
-  const border =
-    tone === "success" ? "border-success/40"
-      : tone === "warning" ? "border-warning/40"
-        : tone === "muted" ? "border-border"
-          : "border-primary/40";
-  const text =
-    tone === "success" ? "text-success"
-      : tone === "warning" ? "text-warning"
-        : tone === "muted" ? "text-muted-foreground"
-          : "text-primary";
+  const border = tone === "success" ? "border-success/40" : tone === "warning" ? "border-warning/40" : tone === "muted" ? "border-border" : "border-primary/40";
+  const text = tone === "success" ? "text-success" : tone === "warning" ? "text-warning" : tone === "muted" ? "text-muted-foreground" : "text-primary";
   return (
-    <button
-      onClick={onClick}
-      className={`glass rounded-xl p-2.5 text-center transition-all ${border} ${active ? "ring-2 ring-primary scale-[1.02]" : "opacity-80 hover:opacity-100"}`}
-    >
+    <button onClick={onClick} className={`glass rounded-xl p-2.5 text-center transition-all ${border} ${active ? "ring-2 ring-primary scale-[1.02]" : "opacity-80 hover:opacity-100"}`}>
       <p className={`text-lg font-black ${text}`}>{value}</p>
       <p className="text-[9.5px] text-muted-foreground">{label}</p>
     </button>

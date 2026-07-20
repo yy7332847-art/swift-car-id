@@ -8,7 +8,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, FileText, Save, Trash2 } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
-import { TrackingMap, type GeoPoint } from "@/components/TrackingMap";
+import { TrackingMap } from "@/components/TrackingMap";
+import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, haversine as haversineGeo, type GeoPoint, type WatchHandle, type PermissionState } from "@/lib/geo";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
