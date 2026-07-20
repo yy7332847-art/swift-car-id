@@ -407,7 +407,7 @@ function RecordPage() {
       console.error(err);
     } finally {
       const totalMs = performance.now() - t0;
-      const sample: PerfSample = { chunkGapMs: chunkGap, sttMs, parseMs, matchMs: Math.max(0, totalMs - sttMs - parseMs), totalMs, textLen, at: Date.now() };
+      const sample: PerfSample = { chunkGapMs: chunkGap, sttMs, parseMs, matchMs, totalMs, textLen, at: Date.now() };
       const buf = perfBufferRef.current;
       buf.push(sample);
       if (buf.length > PERF_BUFFER_SIZE) buf.shift();
