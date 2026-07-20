@@ -12,6 +12,8 @@ import { TrackingMap } from "@/components/TrackingMap";
 import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, runGeoPreflight, isAndroid, type GeoPoint, type WatchHandle, type PermissionState, type GeoPreflight } from "@/lib/geo";
 import { loadSettings } from "@/lib/settings";
 import { detectDuplicate, formatGap, formatDistance, type DuplicateMatch } from "@/lib/duplicate-detection";
+import { enqueueSession, enqueuePlates } from "@/lib/offline-store";
+import { syncNow } from "@/lib/sync-queue";
 
 interface PerfSample { chunkGapMs: number; sttMs: number; parseMs: number; matchMs: number; totalMs: number; textLen: number; at: number }
 interface PerfStats { count: number; avgChunkGapMs: number; avgSttMs: number; avgParseMs: number; avgMatchMs: number; avgTotalMs: number; lastLagMs: number; queue: number }
@@ -80,27 +82,43 @@ function RecordPage() {
     queryKey: ["plates-index"],
     queryFn: async () => {
       const { data: u } = await supabase.auth.getUser();
-      if (!u.user) return { map: new Map<string, PlateInfo>(), list: [] as PlateInfo[], count: 0 };
+      if (!u.user) return { map: new Map<string, PlateInfo>(), list: [] as PlateInfo[], count: 0, source: "empty" as const };
       const map = new Map<string, PlateInfo>();
       const list: PlateInfo[] = [];
-      const PAGE = 1000;
-      let from = 0;
-      for (;;) {
-        const { data, error } = await supabase
-          .from("plates")
-          .select("id, plate_raw, plate_normalized, bank, car_type, chassis, plate_date")
-          .eq("user_id", u.user.id)
-          .range(from, from + PAGE - 1);
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        for (const p of data) {
-          map.set(p.plate_normalized, p);
-          list.push(p);
+      const online = typeof navigator === "undefined" ? true : navigator.onLine;
+      if (online) {
+        try {
+          const PAGE = 1000;
+          let from = 0;
+          for (;;) {
+            const { data, error } = await supabase
+              .from("plates")
+              .select("id, plate_raw, plate_normalized, bank, car_type, chassis, plate_date")
+              .eq("user_id", u.user.id)
+              .range(from, from + PAGE - 1);
+            if (error) throw error;
+            if (!data || data.length === 0) break;
+            for (const p of data) { map.set(p.plate_normalized, p); list.push(p); }
+            if (data.length < PAGE) break;
+            from += PAGE;
+          }
+          // Refresh offline cache in the background so a later drop-out is covered.
+          void import("@/lib/sync-queue").then((m) => m.refreshPlatesCache().catch(() => {}));
+          return { map, list, count: map.size, source: "server" as const };
+        } catch (e) {
+          console.warn("[plates-index] server fetch failed, trying offline cache", e);
         }
-        if (data.length < PAGE) break;
-        from += PAGE;
       }
-      return { map, list, count: map.size };
+      // Offline (or server failed) → hydrate from IndexedDB snapshot.
+      try {
+        const { openDB } = await import("idb");
+        const db = await openDB("plate-offline-v1", 1);
+        const all = (await db.getAll("plates_cache")) as PlateInfo[];
+        for (const p of all) { map.set(p.plate_normalized, p); list.push(p); }
+        return { map, list, count: map.size, source: "cache" as const };
+      } catch {
+        return { map, list, count: 0, source: "empty" as const };
+      }
     },
   });
 
@@ -563,57 +581,112 @@ function RecordPage() {
         .map((e) => ({ lat: e.latitude!, lng: e.longitude!, t: e.spokenAt }));
       const finalPath = pathRef.current.length >= 2 ? pathRef.current : platePath.length > 0 ? platePath : currentPosRef.current ? [currentPosRef.current] : [];
       const first = finalPath[0];
-      const { data: saved, error } = await supabase
-        .from("recognition_sessions")
-        .insert({
-          user_id: u.user.id,
-          started_at: new Date(startedAt).toISOString(),
-          ended_at: new Date().toISOString(),
-          total_detected: current.length,
-          total_matched: matched,
-          total_incomplete: incomplete,
-          total_unique: unique,
-          total_duplicates: duplicates,
-          path: finalPath as unknown as never,
-          start_latitude: first?.lat ?? null,
-          start_longitude: first?.lng ?? null,
-          notes: transcript.slice(0, 1800),
-        })
-        .select("id")
-        .single();
-      if (error || !saved) throw error ?? new Error("تعذر حفظ الجلسة");
-      if (current.length > 0) {
-        // Use the client-generated entry.id as the row id so duplicate_of_id references stay valid.
-        const rows = [...current].reverse().map((e) => ({
-          id: e.id,
-          session_id: saved.id,
-          user_id: u.user!.id,
-          spoken_text: e.spokenText,
-          plate_raw: e.raw,
-          plate_normalized: e.normalized,
-          is_matched: !!e.matchedPlate,
-          is_incomplete: !e.complete,
-          matched_plate_id: e.matchedPlateId ?? null,
-          confidence: e.confidence,
-          suspect_part: e.suspectPart ?? null,
-          correction_note: e.correctionNote ?? null,
-          latitude: e.latitude ?? null,
-          longitude: e.longitude ?? null,
-          duplicate_of_id: e.duplicateOfId ?? null,
-          duplicate_decision: e.duplicateDecision ?? null,
-          duplicate_distance_m: e.duplicateDistanceM ?? null,
-          duplicate_gap_seconds: e.duplicateGapSec ?? null,
-        }));
-        const { error: rowsErr } = await supabase.from("detected_plates").insert(rows);
-        if (rowsErr) throw rowsErr;
+
+      const sessionClientId = sessionIdRef.current ?? crypto.randomUUID();
+      const sessionPayload = {
+        started_at: new Date(startedAt).toISOString(),
+        ended_at: new Date().toISOString(),
+        total_detected: current.length,
+        total_matched: matched,
+        total_incomplete: incomplete,
+        total_unique: unique,
+        total_duplicates: duplicates,
+        path: finalPath,
+        start_latitude: first?.lat ?? null,
+        start_longitude: first?.lng ?? null,
+        notes: transcript.slice(0, 1800),
+      };
+      const platesPayload = [...current].reverse().map((e) => ({
+        id: e.id,
+        spoken_text: e.spokenText,
+        plate_raw: e.raw,
+        plate_normalized: e.normalized,
+        is_matched: !!e.matchedPlate,
+        is_incomplete: !e.complete,
+        matched_plate_id: e.matchedPlateId ?? null,
+        confidence: e.confidence,
+        suspect_part: e.suspectPart ?? null,
+        correction_note: e.correctionNote ?? null,
+        latitude: e.latitude ?? null,
+        longitude: e.longitude ?? null,
+        duplicate_of_id: e.duplicateOfId ?? null,
+        duplicate_decision: e.duplicateDecision ?? null,
+        duplicate_distance_m: e.duplicateDistanceM ?? null,
+        duplicate_gap_seconds: e.duplicateGapSec ?? null,
+      }));
+
+      const online = typeof navigator === "undefined" ? true : navigator.onLine;
+      let serverSessionId: string | null = null;
+      let savedOffline = false;
+
+      if (online) {
+        try {
+          const { data: saved, error } = await supabase
+            .from("recognition_sessions")
+            .upsert(
+              { ...sessionPayload, user_id: u.user.id, client_id: sessionClientId } as unknown as never,
+              { onConflict: "user_id,client_id" },
+            )
+            .select("id")
+            .single();
+          if (error || !saved) throw error ?? new Error("تعذر حفظ الجلسة");
+          serverSessionId = saved.id as string;
+          if (platesPayload.length > 0) {
+            const rows = platesPayload.map((p) => ({
+              ...p,
+              session_id: serverSessionId,
+              user_id: u.user!.id,
+              client_id: p.id,
+            }));
+            const { error: rowsErr } = await supabase
+              .from("detected_plates")
+              .upsert(rows as unknown as never, { onConflict: "user_id,client_id" });
+            if (rowsErr) throw rowsErr;
+          }
+        } catch (netErr) {
+          // Network/RLS/temporary failure → fall back to offline queue.
+          console.warn("[save] server failed, queueing offline:", netErr);
+          savedOffline = true;
+        }
+      } else {
+        savedOffline = true;
       }
+
+      if (savedOffline) {
+        await enqueueSession({
+          client_id: sessionClientId,
+          user_id: u.user.id,
+          payload: sessionPayload,
+          created_at: Date.now(),
+          attempts: 0,
+        });
+        if (platesPayload.length > 0) {
+          await enqueuePlates(
+            platesPayload.map((p) => ({
+              client_id: p.id,
+              session_client_id: sessionClientId,
+              user_id: u.user!.id,
+              payload: p,
+              created_at: Date.now(),
+              attempts: 0,
+            })),
+          );
+        }
+        // Fire-and-forget retry in case connectivity just came back.
+        void syncNow();
+      }
+
       localStorage.removeItem(DRAFT_KEY);
-      setSavedSessionId(saved.id);
+      setSavedSessionId(serverSessionId ?? sessionClientId);
       setSessionId(null);
       sessionIdRef.current = null;
       stopInstantSpeech();
       setStartedAt(null);
-      toast.success(`تم حفظ الجلسة — ${current.length} لوحة، ${matched} مطابقة`);
+      if (savedOffline) {
+        toast.success(`تم الحفظ محلياً — ${current.length} لوحة (سترفع تلقائياً عند رجوع الاتصال)`);
+      } else {
+        toast.success(`تم حفظ الجلسة — ${current.length} لوحة، ${matched} مطابقة`);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "فشل حفظ الجلسة");
     } finally {

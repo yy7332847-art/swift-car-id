@@ -5,6 +5,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTheme } from "@/lib/theme";
 import { ExpiryBanner } from "@/components/ExpiryBanner";
+import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
+import { startSyncEngine } from "@/lib/sync-queue";
 
 interface Tab {
   to: string;
@@ -40,6 +42,10 @@ export function MobileShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setThemeLocal(document.documentElement.classList.contains("dark") ? "dark" : "light");
+  }, []);
+
+  useEffect(() => {
+    startSyncEngine();
   }, []);
 
   useEffect(() => {
@@ -106,6 +112,8 @@ export function MobileShell({ children }: { children: ReactNode }) {
           >
             <RotateCw className="h-4 w-4" />
           </button>
+
+          <ConnectivityIndicator />
 
           <button
             onClick={handleToggle}
