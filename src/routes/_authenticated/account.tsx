@@ -1,9 +1,11 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getMySubscription, isAdmin } from "@/lib/subscription-check";
-import { LogOut, User as UserIcon, Mail, Clock, CheckCircle2, XCircle, ShieldCheck } from "lucide-react";
+import { LogOut, User as UserIcon, Mail, Clock, CheckCircle2, XCircle, ShieldCheck, FileText, Download, ListChecks, AlertTriangle, ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
+import { useState } from "react";
+import { exportSessionExcel, exportSessionPDF, formatDuration, sessionDurationSec, type SessionRow } from "@/lib/report-export";
 
 export const Route = createFileRoute("/_authenticated/account")({
   component: AccountPage,
@@ -20,6 +22,20 @@ function AccountPage() {
       if (!u.user) return null;
       const { data } = await supabase.from("profiles").select("full_name, email, created_at").eq("id", u.user.id).maybeSingle();
       return data;
+    },
+  });
+  const { data: sessions } = useQuery({
+    queryKey: ["my-sessions"],
+    queryFn: async (): Promise<SessionRow[]> => {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) return [];
+      const { data } = await supabase
+        .from("recognition_sessions")
+        .select("id, started_at, ended_at, total_detected, total_matched, total_incomplete")
+        .eq("user_id", u.user.id)
+        .order("started_at", { ascending: false })
+        .limit(20);
+      return data ?? [];
     },
   });
 
@@ -74,9 +90,67 @@ function AccountPage() {
         <InfoRow icon={Clock} label="تاريخ الإنشاء" value={profile?.created_at ? new Date(profile.created_at).toLocaleDateString("ar-EG") : ""} />
       </div>
 
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="flex items-center gap-2 text-sm font-black"><ListChecks className="h-4 w-4" /> آخر جلساتي</h2>
+        <Link to="/sessions" className="text-[11px] font-bold text-primary">عرض الكل</Link>
+      </div>
+      <div className="mb-6 space-y-2">
+        {sessions && sessions.length > 0 ? (
+          sessions.slice(0, 8).map((s) => <SessionRowCard key={s.id} session={s} />)
+        ) : (
+          <p className="rounded-2xl bg-muted/50 p-4 text-center text-xs text-muted-foreground">لا توجد جلسات بعد</p>
+        )}
+      </div>
+
       <button onClick={signOut} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-destructive py-3 text-sm font-black text-destructive-foreground">
         <LogOut className="h-4 w-4" /> تسجيل الخروج
       </button>
+    </div>
+  );
+}
+
+function SessionRowCard({ session }: { session: SessionRow }) {
+  const [busy, setBusy] = useState<"pdf" | "xlsx" | null>(null);
+  const dur = sessionDurationSec(session);
+  const errors = session.total_detected - session.total_matched;
+
+  async function download(kind: "pdf" | "xlsx") {
+    try {
+      setBusy(kind);
+      if (kind === "pdf") await exportSessionPDF(session);
+      else await exportSessionExcel(session);
+      toast.success(`تم تنزيل ${kind.toUpperCase()}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل التنزيل");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="glass rounded-2xl p-3">
+      <div className="flex items-start gap-3">
+        <Link to="/sessions/$id" params={{ id: session.id }} className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-bold">{new Date(session.started_at).toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" })}</p>
+            <div className="mt-1 flex flex-wrap gap-2 text-[10px]">
+              <span className="text-muted-foreground">مدة: <span className="font-mono font-bold text-foreground">{formatDuration(dur)}</span></span>
+              <span className="text-success"><CheckCircle2 className="ml-0.5 inline h-2.5 w-2.5" />{session.total_matched} مطابقة</span>
+              <span className="text-warning"><AlertTriangle className="ml-0.5 inline h-2.5 w-2.5" />{session.total_incomplete} ناقصة</span>
+              <span className="text-destructive">{errors - session.total_incomplete >= 0 ? errors - session.total_incomplete : 0} غير موجودة</span>
+            </div>
+          </div>
+          <ChevronLeft className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </Link>
+      </div>
+      <div className="mt-2 flex gap-2">
+        <button disabled={busy !== null} onClick={() => download("pdf")} className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-muted px-2 py-1.5 text-[10px] font-bold disabled:opacity-50">
+          <FileText className="h-3 w-3 text-destructive" /> {busy === "pdf" ? "..." : "PDF"}
+        </button>
+        <button disabled={busy !== null} onClick={() => download("xlsx")} className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-muted px-2 py-1.5 text-[10px] font-bold disabled:opacity-50">
+          <Download className="h-3 w-3 text-success" /> {busy === "xlsx" ? "..." : "Excel"}
+        </button>
+      </div>
     </div>
   );
 }
