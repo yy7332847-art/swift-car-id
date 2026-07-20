@@ -142,6 +142,8 @@ for (const [w, d] of Object.entries(DIGIT_WORDS)) { (DIGIT_TO_WORDS[d] ||= []).p
 /** True if every letter and every digit of the plate has some spoken evidence in the transcript. */
 export function plateAppearsInText(letters: string, digits: string, text: string): boolean {
   const norm = " " + normalizeArabic(text) + " ";
+  const compact = normalizePlate(text);
+  if (compact.includes(`${letters}${digits}`) || compact.includes(`${digits}${letters}`)) return true;
   for (const ch of letters) {
     const names = LETTER_TO_NAMES[ch] ?? [];
     const found = names.some((n) => norm.includes(` ${n} `) || norm.includes(` ${n}`) || norm.includes(`${n} `));
