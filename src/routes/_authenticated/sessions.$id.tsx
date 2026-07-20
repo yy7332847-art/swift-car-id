@@ -123,15 +123,22 @@ function SessionDetailPage() {
 
   function resetPlayback() { setPlaying(false); setPlaybackIdx(null); }
 
-  async function exportTrack(kind: "gpx" | "kml") {
-    if (path.length < 2) { toast.info("لا توجد إحداثيات كافية للتصدير"); return; }
-    const name = `session-${id.slice(0, 8)}.${kind}`;
+  const allWaypoints: PlateWaypoint[] = useMemo(() => (detected ?? [])
+    .filter((d) => d.latitude != null && d.longitude != null)
+    .map((d) => ({
+      lat: d.latitude!, lng: d.longitude!, label: d.plate_raw ?? "",
+      t: new Date(d.detected_at).getTime(),
+      status: d.is_matched ? "matched" : d.is_incomplete ? "incomplete" : "detected",
+    })), [detected]);
+
+  async function exportTrackWith(opts: { kind: "gpx" | "kml"; includeWaypoints: boolean; useSmoothed: boolean }) {
+    const chosen = opts.useSmoothed && rebuilt ? rebuilt : rawPath;
+    if (chosen.length < 2) { toast.info("لا توجد إحداثيات كافية للتصدير"); return; }
+    const name = `session-${id.slice(0, 8)}.${opts.kind}`;
     const label = `PlateCheck ${new Date(session?.started_at ?? Date.now()).toLocaleString()}`;
-    const waypoints: PlateWaypoint[] = includeWaypoints ? (detected ?? [])
-      .filter((d) => d.latitude != null && d.longitude != null)
-      .map((d) => ({ lat: d.latitude!, lng: d.longitude!, label: d.plate_raw ?? "", t: new Date(d.detected_at).getTime(), status: d.is_matched ? "matched" : d.is_incomplete ? "incomplete" : "detected" })) : [];
-    const content = kind === "gpx" ? pathToGPX(path, { name: label, waypoints }) : pathToKML(path, { name: label, waypoints });
-    const mime = kind === "gpx" ? "application/gpx+xml" : "application/vnd.google-earth.kml+xml";
+    const waypoints = opts.includeWaypoints ? allWaypoints : [];
+    const content = opts.kind === "gpx" ? pathToGPX(chosen, { name: label, waypoints }) : pathToKML(chosen, { name: label, waypoints });
+    const mime = opts.kind === "gpx" ? "application/gpx+xml" : "application/vnd.google-earth.kml+xml";
     const result = await shareOrDownload(name, content, mime);
     toast.success(result === "shared" ? "تمت المشاركة" : "تم تنزيل الملف");
   }
