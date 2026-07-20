@@ -389,16 +389,16 @@ function RecordPage() {
       toast.warning("قم برفع ملف Excel أولاً");
       return;
     }
-    // GPS pre-flight before opening the mic — makes background/permission
-    // issues visible before the user starts talking.
-    setPreflightLoading(true);
-    setPreflightOpen(true);
-    try {
-      const pf = await runGeoPreflight();
-      setPreflight(pf);
-    } finally {
-      setPreflightLoading(false);
-    }
+    // Run GPS pre-flight silently in the background — never block the user.
+    // If accuracy is low we just show a soft toast, but recording starts now.
+    runGeoPreflight()
+      .then((pf) => {
+        setPreflight(pf);
+        if (pf.permission === "denied") toast.warning("إذن الموقع مرفوض — سيعمل التسجيل بدون خريطة");
+        else if (pf.probe && pf.probe.acc > 100) toast("دقة GPS منخفضة — سيتم التحسين تلقائياً", { duration: 2500 });
+      })
+      .catch(() => {/* silent */});
+    await confirmAndStart();
   }
 
   async function confirmAndStart() {
