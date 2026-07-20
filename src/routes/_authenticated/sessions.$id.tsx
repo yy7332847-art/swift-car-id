@@ -358,6 +358,15 @@ function SessionDetailPage() {
           </p>
         )}
       </div>
+
+      <ExportPreview
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        onConfirm={exportTrackWith}
+        rawPath={rawPath}
+        smoothedPath={rebuilt}
+        waypoints={allWaypoints}
+      />
     </div>
   );
 }
