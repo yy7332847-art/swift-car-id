@@ -318,8 +318,15 @@ function RecordPage() {
         else interim += ` ${phrase}`;
       }
       const visible = cleanRecognizedText(finalText || interim);
-      if (visible) setLiveText(visible);
-      if (finalText) ingestTextRef.current(finalText);
+      if (visible) {
+        setLiveText(visible);
+        const key = visible.replace(/\s+/g, " ");
+        if (key !== lastInstantTextRef.current) {
+          lastInstantTextRef.current = key;
+          ingestTextRef.current(visible);
+        }
+      }
+      if (finalText && finalText !== visible) ingestTextRef.current(finalText);
     };
     rec.onerror = () => undefined;
     rec.onend = () => {
