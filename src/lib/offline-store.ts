@@ -16,6 +16,7 @@ export interface PendingSession {
   created_at: number;
   attempts: number;
   last_error?: string;
+  next_retry_at?: number;
 }
 
 export interface PendingPlate {
@@ -26,6 +27,7 @@ export interface PendingPlate {
   created_at: number;
   attempts: number;
   last_error?: string;
+  next_retry_at?: number;
 }
 
 export interface CachedPlate {
@@ -126,13 +128,52 @@ export async function deletePlatesFor(sessionClientId: string) {
   await tx.done;
 }
 
+/** Exponential backoff with full jitter: 5s, 15s, 45s, 2m, 6m, capped at 15m. */
+export function computeBackoffMs(attempts: number): number {
+  const base = 5_000;
+  const cap = 15 * 60_000;
+  const exp = Math.min(cap, base * Math.pow(3, Math.max(0, attempts - 1)));
+  return Math.floor(Math.random() * exp);
+}
+
 export async function bumpAttempt(store: "pending_sessions" | "pending_plates", clientId: string, err: string) {
   const d = await db();
   const item = (await d.get(store, clientId)) as PendingSession | PendingPlate | undefined;
   if (!item) return;
   item.attempts = (item.attempts ?? 0) + 1;
   item.last_error = err.slice(0, 200);
+  item.next_retry_at = Date.now() + computeBackoffMs(item.attempts);
   await d.put(store, item);
+}
+
+/** Reset backoff for all pending items (used when connectivity flips online). */
+export async function resetBackoff() {
+  const d = await db();
+  for (const store of ["pending_sessions", "pending_plates"] as const) {
+    const tx = d.transaction(store, "readwrite");
+    let cursor = await tx.store.openCursor();
+    while (cursor) {
+      const v = cursor.value as PendingSession | PendingPlate;
+      if (v.next_retry_at) { v.next_retry_at = 0; await cursor.update(v); }
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+  }
+}
+
+/** Timestamp (ms) of the earliest pending retry, or null if the queue is empty. */
+export async function earliestNextRetryAt(): Promise<number | null> {
+  if (!isIndexedDBAvailable()) return null;
+  const d = await db();
+  let earliest: number | null = null;
+  for (const store of ["pending_sessions", "pending_plates"] as const) {
+    const items = (await d.getAll(store)) as Array<PendingSession | PendingPlate>;
+    for (const it of items) {
+      const t = it.next_retry_at ?? 0;
+      if (earliest === null || t < earliest) earliest = t;
+    }
+  }
+  return earliest;
 }
 
 export async function pendingCounts(): Promise<{ sessions: number; plates: number }> {

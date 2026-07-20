@@ -2,12 +2,13 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   bumpAttempt,
   deletePlate,
-  deletePlatesFor,
   deleteSession,
+  earliestNextRetryAt,
   listAllPendingPlates,
   listPendingPlatesFor,
   listPendingSessions,
   pendingCounts,
+  resetBackoff,
   setMeta,
   cachePlates,
   type CachedPlate,
@@ -36,6 +37,28 @@ const state: SyncState = {
 const listeners = new Set<SyncListener>();
 let started = false;
 let intervalId: ReturnType<typeof setInterval> | null = null;
+let scheduledTimer: ReturnType<typeof setTimeout> | null = null;
+
+const MIN_DELAY = 5_000;
+const IDLE_DELAY = 60_000;
+const MAX_DELAY = 15 * 60_000;
+
+/** Reschedule the next drain based on the earliest queued next_retry_at. */
+async function scheduleNextRun() {
+  if (typeof window === "undefined") return;
+  if (scheduledTimer) { clearTimeout(scheduledTimer); scheduledTimer = null; }
+  if (!state.online) return;
+  let delay = IDLE_DELAY;
+  try {
+    const earliest = await earliestNextRetryAt();
+    if (earliest !== null) {
+      const now = Date.now();
+      delay = Math.max(MIN_DELAY, Math.min(MAX_DELAY, earliest - now));
+      if (earliest <= now) delay = MIN_DELAY;
+    }
+  } catch { /* ignore */ }
+  scheduledTimer = setTimeout(() => { if (state.online && !state.syncing) void syncNow(); }, delay);
+}
 
 function notify() {
   for (const l of listeners) l({ ...state });
@@ -62,12 +85,12 @@ async function refreshCounts() {
   }
 }
 
-export async function syncNow(): Promise<{ pushed: number; failed: number }> {
-  if (state.syncing) return { pushed: 0, failed: 0 };
+export async function syncNow(): Promise<{ pushed: number; failed: number; deferred: number }> {
+  if (state.syncing) return { pushed: 0, failed: 0, deferred: 0 };
   if (!(typeof navigator === "undefined" ? true : navigator.onLine)) {
     state.online = false;
     notify();
-    return { pushed: 0, failed: 0 };
+    return { pushed: 0, failed: 0, deferred: 0 };
   }
   state.syncing = true;
   state.lastError = null;
@@ -75,15 +98,16 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
 
   let pushed = 0;
   let failed = 0;
+  let deferred = 0;
+  const now = Date.now();
 
   try {
     const sessions = await listPendingSessions();
-    // Map from a session's client_id → server-assigned session id.
     const sessionServerIds = new Map<string, string>();
 
     for (const s of sessions) {
+      if ((s.next_retry_at ?? 0) > now) { deferred += 1; continue; }
       try {
-        // Upsert by (user_id, client_id) unique index.
         const { data, error } = await supabase
           .from("recognition_sessions")
           .upsert({ ...s.payload, client_id: s.client_id, user_id: s.user_id } as unknown as never, { onConflict: "user_id,client_id" })
@@ -92,10 +116,10 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
         if (error || !data) throw error ?? new Error("upsert failed");
         sessionServerIds.set(s.client_id, data.id as string);
 
-        // Push all plates linked to this session in one batch.
         const plates = await listPendingPlatesFor(s.client_id);
-        if (plates.length > 0) {
-          const rows = plates.map((p) => ({
+        const ready = plates.filter((p) => (p.next_retry_at ?? 0) <= now);
+        if (ready.length > 0) {
+          const rows = ready.map((p) => ({
             ...p.payload,
             session_id: data.id,
             user_id: p.user_id,
@@ -105,10 +129,16 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
             .from("detected_plates")
             .upsert(rows as unknown as never, { onConflict: "user_id,client_id" });
           if (pErr) throw pErr;
-          await deletePlatesFor(s.client_id);
-          pushed += plates.length;
+          for (const p of ready) await deletePlate(p.client_id);
+          pushed += ready.length;
         }
-        await deleteSession(s.client_id);
+        // Only remove the session record when no plates remain linked to it.
+        const remaining = await listPendingPlatesFor(s.client_id);
+        if (remaining.length === 0) {
+          await deleteSession(s.client_id);
+        } else {
+          deferred += remaining.length;
+        }
         pushed += 1;
       } catch (err) {
         failed += 1;
@@ -116,12 +146,13 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
       }
     }
 
-    // Orphan plates: session was already saved server-side but plates weren't (e.g. partial success).
-    // Their payload should already carry a valid session_id.
-    const orphanPlates = (await listAllPendingPlates()).filter((p) => !sessions.find((s) => s.client_id === p.session_client_id));
+    // Orphan plates: session was already saved server-side previously.
+    const allPlates = await listAllPendingPlates();
+    const orphanPlates = allPlates.filter((p) => !sessions.find((s) => s.client_id === p.session_client_id));
     if (orphanPlates.length > 0) {
       const bySession = new Map<string, typeof orphanPlates>();
       for (const p of orphanPlates) {
+        if ((p.next_retry_at ?? 0) > now) { deferred += 1; continue; }
         const key = String(p.payload.session_id ?? "");
         if (!key) { await deletePlate(p.client_id); continue; }
         const arr = bySession.get(key) ?? [];
@@ -152,8 +183,9 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
     state.syncing = false;
     await refreshCounts();
     notify();
+    scheduleNextRun();
   }
-  return { pushed, failed };
+  return { pushed, failed, deferred };
 }
 
 /** Snapshot the user's plate DB to IndexedDB for offline matching. */
@@ -181,34 +213,41 @@ export async function refreshPlatesCache(): Promise<{ count: number }> {
   return { count: all.length };
 }
 
-/** Start listeners + periodic retry. Safe to call multiple times. */
+/** Start listeners + adaptive retry scheduling. Safe to call multiple times. */
 export function startSyncEngine() {
   if (started || typeof window === "undefined") return;
   started = true;
 
-  const online = () => {
+  const online = async () => {
     state.online = true;
     notify();
+    // Fresh connectivity — clear backoff so pending items retry immediately.
+    try { await resetBackoff(); } catch { /* ignore */ }
     void syncNow();
   };
   const offline = () => {
     state.online = false;
+    if (scheduledTimer) { clearTimeout(scheduledTimer); scheduledTimer = null; }
     notify();
   };
   window.addEventListener("online", online);
   window.addEventListener("offline", offline);
 
+  // Safety net: even if scheduled timer is somehow missed, poll every 5 min.
   intervalId = setInterval(() => {
     if (state.online && !state.syncing) void syncNow();
-  }, 30_000);
+  }, 5 * 60_000);
 
   void refreshCounts().then(() => {
     if (state.online) void syncNow();
+    else void scheduleNextRun();
   });
 }
 
 export function stopSyncEngine() {
   if (intervalId) clearInterval(intervalId);
+  if (scheduledTimer) clearTimeout(scheduledTimer);
   intervalId = null;
+  scheduledTimer = null;
   started = false;
 }
