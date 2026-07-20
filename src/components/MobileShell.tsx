@@ -1,5 +1,5 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { Home, Upload, Mic, ListChecks, User, ShieldCheck, Moon, Sun, ScanLine, ChevronRight, RotateCw, Settings as SettingsIcon } from "lucide-react";
+import { Home, Upload, Mic, ListChecks, User, ShieldCheck, Moon, Sun, ScanLine, ChevronRight, RotateCw } from "lucide-react";
 
 import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
