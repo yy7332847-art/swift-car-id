@@ -166,6 +166,7 @@ function RecordPage() {
   const [perfStats, setPerfStats] = useState<PerfStats>({ count: 0, avgChunkGapMs: 0, avgSttMs: 0, avgParseMs: 0, avgMatchMs: 0, avgTotalMs: 0, lastLagMs: 0, queue: 0 });
   const draftSaveTimerRef = useRef<number | null>(null);
   const recentTextRef = useRef<Map<string, number>>(new Map());
+  const lastInstantTextRef = useRef("");
   const ingestTextRef = useRef<(rawText: string) => { accepted: boolean; parseMs: number; matchMs: number; textLen: number }>((rawText) => ({ accepted: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
 
   const applyEntries = useCallback((next: PlateEntry[]) => {
