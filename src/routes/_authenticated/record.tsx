@@ -274,8 +274,36 @@ function RecordPage() {
       }
 
       const lastSame = finalizedRef.current.get(enriched.normalized);
-      if (lastSame && now - lastSame < 9000) continue;
+      // Short 4s STT-jitter cooldown — still treat as noise, no user prompt.
+      if (lastSame && now - lastSame < 4000) continue;
       const pos = currentPosRef.current;
+
+      // Smart duplicate detection (only after the short cooldown, only for complete plates).
+      let dupInfo: { originalId: string; decision: "same" | "different" | "unresolved"; distanceM: number | null; gapSec: number; needsPrompt: boolean; original: PlateEntry; match: DuplicateMatch } | null = null;
+      if (enriched.complete) {
+        const dupCfg = loadSettings().duplicateDetection;
+        const candidates = entriesRef.current.map((e) => ({ id: e.id, normalized: e.normalized, spokenAt: e.spokenAt, latitude: e.latitude, longitude: e.longitude, duplicateDecision: e.duplicateDecision ?? null, duplicateOfId: e.duplicateOfId ?? null }));
+        const match = detectDuplicate(
+          { normalized: enriched.normalized, latitude: pos?.lat ?? null, longitude: pos?.lng ?? null, spokenAt: now },
+          candidates,
+          dupCfg,
+        );
+        if (match) {
+          const original = entriesRef.current.find((e) => e.id === match.original.id);
+          if (original) {
+            dupInfo = {
+              originalId: original.id,
+              decision: match.kind === "auto" ? "same" : "unresolved",
+              distanceM: match.distanceMeters,
+              gapSec: match.gapSeconds,
+              needsPrompt: match.kind === "prompt",
+              original,
+              match,
+            };
+          }
+        }
+      }
+
       const entry: PlateEntry = {
         ...enriched,
         id: crypto.randomUUID(),
@@ -286,12 +314,21 @@ function RecordPage() {
         latitude: pos?.lat ?? null,
         longitude: pos?.lng ?? null,
         matchedPlate: isMatched ? toMatched(match!) : undefined,
+        duplicateOfId: dupInfo?.originalId ?? null,
+        duplicateDecision: dupInfo?.decision ?? null,
+        duplicateDistanceM: dupInfo?.distanceM ?? null,
+        duplicateGapSec: dupInfo?.gapSec ?? null,
       };
       applyEntries([entry, ...entriesRef.current].slice(0, 500));
       setLastCapture({ raw: enriched.raw, complete: enriched.complete, matched: isMatched, at: now });
       if (enriched.complete) {
         finalizedRef.current.set(enriched.normalized, now);
-        if (isMatched) {
+        if (dupInfo?.needsPrompt) {
+          setDuplicatePrompt({ entryId: entry.id, original: dupInfo.original, match: dupInfo.match });
+          if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
+        } else if (dupInfo?.decision === "same") {
+          toast(`مكرّرة تلقائياً: ${enriched.raw}`, { description: `${formatGap(dupInfo.gapSec)} • ${formatDistance(dupInfo.distanceM)}` });
+        } else if (isMatched) {
           if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
           toast.success(`تطابق: ${enriched.raw}`, { description: match!.car_type || undefined });
         }
