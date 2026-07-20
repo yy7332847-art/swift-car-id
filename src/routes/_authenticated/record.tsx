@@ -68,7 +68,10 @@ function RecordPage() {
   const recorderRef = useRef<RecorderHandle | null>(null);
   const pendingRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
-  const seenRef = useRef<Set<string>>(new Set());
+  // Letters-key → { entryId, dbId, digits } for plates still eligible to grow (incomplete).
+  const growableRef = useRef<Map<string, { entryId: string; dbId: string; digits: string }>>(new Map());
+  // Letters that already finalized as complete — don't re-insert on later chunks.
+  const finalizedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!startedAt) return;
@@ -105,42 +108,50 @@ function RecordPage() {
       const sid = sessionIdRef.current;
       if (!sid) return;
 
-      const now = Date.now();
-      const inserts: Array<{
-        session_id: string;
-        user_id: string;
-        spoken_text: string;
-        plate_raw: string;
-        plate_normalized: string;
-        is_matched: boolean;
-        is_incomplete: boolean;
-        matched_plate_id: string | null;
-        confidence: number;
-        suspect_part: string | null;
-        correction_note: string | null;
-      }> = [];
-
-      const newEntries: PlateEntry[] = [];
-
       for (const p of plates) {
-        // Hallucination guard: every plate character must have spoken evidence in this chunk.
         if (!plateAppearsInText(p.letters, p.digits, text)) continue;
-        // Dedupe across chunks for this session.
-        if (seenRef.current.has(p.normalized)) continue;
-        seenRef.current.add(p.normalized);
 
+        const key = p.letters;
         const match = platesIndex?.map.get(p.normalized);
-        // Only mark matched when: value exists in DB AND plate was clearly heard.
         const isMatched = !!match && p.complete && p.confidence >= 0.85;
+        const now = Date.now();
 
-        newEntries.push({
-          ...p,
-          id: crypto.randomUUID(),
-          spokenAt: now,
-          matchedPlate: isMatched ? { plate_raw: match!.plate_raw, bank: match!.bank, car_type: match!.car_type, chassis: match!.chassis, plate_date: match!.plate_date } : undefined,
-        });
+        const existing = growableRef.current.get(key);
+        if (existing) {
+          // Upgrade only if new digits are strictly longer or we newly satisfy completeness.
+          const grew = p.digits.length > existing.digits.length;
+          if (!grew) continue;
+          const patch = {
+            plate_raw: p.raw,
+            plate_normalized: p.normalized,
+            is_matched: isMatched,
+            is_incomplete: !p.complete,
+            matched_plate_id: isMatched ? match!.id : null,
+            confidence: p.confidence,
+            suspect_part: p.suspectPart ?? null,
+            correction_note: p.correctionNote ?? null,
+          };
+          const { error } = await supabase.from("detected_plates").update(patch).eq("id", existing.dbId);
+          if (error) { console.error("update detected_plates", error); continue; }
+          setEntries((prev) => prev.map((e) => e.id === existing.entryId ? {
+            ...e, raw: p.raw, normalized: p.normalized, letters: p.letters, digits: p.digits,
+            complete: p.complete, confidence: p.confidence, suspectPart: p.suspectPart, correctionNote: p.correctionNote,
+            matchedPlate: isMatched ? { plate_raw: match!.plate_raw, bank: match!.bank, car_type: match!.car_type, chassis: match!.chassis, plate_date: match!.plate_date } : undefined,
+          } : e));
+          if (p.complete) {
+            growableRef.current.delete(key);
+            finalizedRef.current.add(key);
+            if (isMatched && navigator.vibrate) navigator.vibrate([50, 30, 100]);
+            if (isMatched) toast.success(`تطابق: ${p.raw}`, { description: match!.car_type || undefined });
+          } else {
+            growableRef.current.set(key, { ...existing, digits: p.digits });
+          }
+          continue;
+        }
 
-        inserts.push({
+        if (finalizedRef.current.has(key)) continue;
+
+        const insertRow = {
           session_id: sid,
           user_id: sess.session!.user.id,
           spoken_text: text,
@@ -152,21 +163,26 @@ function RecordPage() {
           confidence: p.confidence,
           suspect_part: p.suspectPart ?? null,
           correction_note: p.correctionNote ?? null,
-        });
-      }
+        };
+        const { data: inserted, error } = await supabase.from("detected_plates").insert(insertRow).select("id").single();
+        if (error || !inserted) { console.error("insert detected_plates", error); continue; }
 
-      if (newEntries.length > 0) {
-        setEntries((prev) => [...newEntries.reverse(), ...prev].slice(0, 500));
-      }
-
-      if (inserts.length > 0) {
-        const { error } = await supabase.from("detected_plates").insert(inserts);
-        if (error) console.error("insert detected_plates", error);
-        for (const n of newEntries) {
-          if (n.matchedPlate) {
+        const entryId = crypto.randomUUID();
+        const entry: PlateEntry = {
+          ...p,
+          id: entryId,
+          spokenAt: now,
+          matchedPlate: isMatched ? { plate_raw: match!.plate_raw, bank: match!.bank, car_type: match!.car_type, chassis: match!.chassis, plate_date: match!.plate_date } : undefined,
+        };
+        setEntries((prev) => [entry, ...prev].slice(0, 500));
+        if (p.complete) {
+          finalizedRef.current.add(key);
+          if (isMatched) {
             if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
-            toast.success(`تطابق: ${n.raw}`, { description: n.matchedPlate.car_type || undefined });
+            toast.success(`تطابق: ${p.raw}`, { description: match!.car_type || undefined });
           }
+        } else {
+          growableRef.current.set(key, { entryId, dbId: inserted.id, digits: p.digits });
         }
       }
     } catch (err) {
@@ -192,7 +208,8 @@ function RecordPage() {
         .single();
       if (error) throw error;
       sessionIdRef.current = session.id;
-      seenRef.current = new Set();
+      growableRef.current = new Map();
+      finalizedRef.current = new Set();
       setSessionId(session.id);
       setEntries([]);
       setTranscript("");
@@ -200,7 +217,7 @@ function RecordPage() {
       setElapsed(0);
 
       recorderRef.current = await startRecorder({
-        chunkSeconds: 3.5,
+        chunkSeconds: 1.8,
         targetSampleRate: 16000,
         onLevel: setLevel,
         onChunk: (wav) => void processChunk(wav),
@@ -215,6 +232,11 @@ function RecordPage() {
     setRecording(false);
     await recorderRef.current?.stop();
     recorderRef.current = null;
+    // Wait briefly for any in-flight chunk to complete before summarizing.
+    const waitStart = Date.now();
+    while (pendingRef.current > 0 && Date.now() - waitStart < 8000) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
     const sid = sessionIdRef.current;
     if (sid) {
       const matched = entries.filter((e) => e.matchedPlate).length;
@@ -226,10 +248,14 @@ function RecordPage() {
         total_incomplete: incomplete,
       }).eq("id", sid);
       toast.success(`تم حفظ الجلسة — ${entries.length} لوحة، ${matched} مطابقة`);
+      if (incomplete > 0) {
+        toast.warning(`${incomplete} لوحة غير مكتملة — راجعها بالأسفل`, { duration: 6000 });
+      }
     }
     setStartedAt(null);
     setLevel(0);
   }
+
 
   useEffect(() => () => { void recorderRef.current?.stop(); }, []);
 
