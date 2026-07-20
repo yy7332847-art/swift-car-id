@@ -38,6 +38,10 @@ interface PlateEntry extends DetectedPlate {
   latitude?: number | null;
   longitude?: number | null;
   matchedPlate?: Omit<PlateInfo, "id" | "plate_normalized">;
+  duplicateOfId?: string | null;
+  duplicateDecision?: "same" | "different" | "unresolved" | null;
+  duplicateDistanceM?: number | null;
+  duplicateGapSec?: number | null;
 }
 
 const DRAFT_KEY = "platecheck.active-recording-draft.v4";
