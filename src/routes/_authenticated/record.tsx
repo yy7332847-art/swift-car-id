@@ -1,17 +1,27 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, FileText, Save, Trash2 } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, FileText, Save, Trash2, Activity } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
 import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, type GeoPoint, type WatchHandle, type PermissionState } from "@/lib/geo";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+
+interface PerfSample { chunkGapMs: number; sttMs: number; parseMs: number; matchMs: number; totalMs: number; textLen: number; at: number }
+interface PerfStats { count: number; avgChunkGapMs: number; avgSttMs: number; avgParseMs: number; avgMatchMs: number; avgTotalMs: number; lastLagMs: number; queue: number }
+const PERF_BUFFER_SIZE = 20;
+function computePerfStats(samples: PerfSample[], queue: number): PerfStats {
+  if (samples.length === 0) return { count: 0, avgChunkGapMs: 0, avgSttMs: 0, avgParseMs: 0, avgMatchMs: 0, avgTotalMs: 0, lastLagMs: 0, queue };
+  const s = samples.reduce((a, x) => ({ chunkGapMs: a.chunkGapMs + x.chunkGapMs, sttMs: a.sttMs + x.sttMs, parseMs: a.parseMs + x.parseMs, matchMs: a.matchMs + x.matchMs, totalMs: a.totalMs + x.totalMs }), { chunkGapMs: 0, sttMs: 0, parseMs: 0, matchMs: 0, totalMs: 0 });
+  const n = samples.length;
+  return { count: n, avgChunkGapMs: s.chunkGapMs / n, avgSttMs: s.sttMs / n, avgParseMs: s.parseMs / n, avgMatchMs: s.matchMs / n, avgTotalMs: s.totalMs / n, lastLagMs: samples[samples.length - 1]?.totalMs ?? 0, queue };
+}
 
 export const Route = createFileRoute("/_authenticated/record")({
   component: RecordPage,
@@ -133,6 +143,10 @@ function RecordPage() {
   const growableRef = useRef<Map<string, { entryId: string; digits: string }>>(new Map());
   const finalizedRef = useRef<Map<string, number>>(new Map());
   const restoredRef = useRef(false);
+  const perfBufferRef = useRef<PerfSample[]>([]);
+  const lastChunkAtRef = useRef<number>(0);
+  const [perfStats, setPerfStats] = useState<PerfStats>({ count: 0, avgChunkGapMs: 0, avgSttMs: 0, avgParseMs: 0, avgMatchMs: 0, avgTotalMs: 0, lastLagMs: 0, queue: 0 });
+  const draftSaveTimerRef = useRef<number | null>(null);
 
   const applyEntries = useCallback((next: PlateEntry[]) => {
     entriesRef.current = next;
@@ -162,11 +176,15 @@ function RecordPage() {
 
   useEffect(() => {
     if (!startedAt || !sessionId) return;
-    const draft: DraftSession = { draftId: sessionId, userId: "", startedAt, entries, transcript, path, wasRecording: recording, reviewOpen };
-    supabase.auth.getUser().then(({ data }) => {
-      draft.userId = data.user?.id ?? "";
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-    }).catch(() => undefined);
+    if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = window.setTimeout(() => {
+      const draft: DraftSession = { draftId: sessionId, userId: "", startedAt, entries, transcript, path, wasRecording: recording, reviewOpen };
+      supabase.auth.getUser().then(({ data }) => {
+        draft.userId = data.user?.id ?? "";
+        try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (e) { console.warn("draft save failed", e); }
+      }).catch(() => undefined);
+    }, 600);
+    return () => { if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current); };
   }, [entries, path, recording, reviewOpen, sessionId, startedAt, transcript]);
 
   useEffect(() => {
@@ -202,23 +220,33 @@ function RecordPage() {
   const processChunk = useCallback(async (wav: Blob) => {
     pendingRef.current++;
     setProcessing(true);
+    const t0 = performance.now();
+    const chunkGap = lastChunkAtRef.current ? t0 - lastChunkAtRef.current : 0;
+    lastChunkAtRef.current = t0;
+    let sttMs = 0, parseMs = 0, matchMs = 0, textLen = 0;
     try {
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       if (!token || !sessionIdRef.current) return;
       const form = new FormData();
       form.append("audio", wav, "chunk.wav");
+      const tStt = performance.now();
       const res = await fetch("/api/transcribe", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
       if (!res.ok) {
         console.error("STT", res.status, await res.text().catch(() => ""));
         return;
       }
       const json = await res.json();
+      sttMs = performance.now() - tStt;
       const text: string = (json.text || "").trim();
+      textLen = text.length;
       if (!text || text.length < 2) return;
       setTranscript((prev) => (prev + " " + text).trim().slice(-3000));
+      const tParse = performance.now();
       const plates = extractPlates(text);
+      parseMs = performance.now() - tParse;
       if (plates.length === 0) return;
+      const tMatch = performance.now();
 
       for (const p of plates) {
         if (!p.complete && !plateAppearsInText(p.letters, p.digits, text)) continue;
@@ -283,9 +311,17 @@ function RecordPage() {
           growableRef.current.set(key, { entryId: entry.id, digits: enriched.digits });
         }
       }
+      matchMs = performance.now() - tMatch - parseMs > 0 ? performance.now() - (t0 + sttMs + parseMs) : 0;
     } catch (err) {
       console.error(err);
     } finally {
+      const totalMs = performance.now() - t0;
+      const sample: PerfSample = { chunkGapMs: chunkGap, sttMs, parseMs, matchMs: Math.max(0, totalMs - sttMs - parseMs), totalMs, textLen, at: Date.now() };
+      const buf = perfBufferRef.current;
+      buf.push(sample);
+      if (buf.length > PERF_BUFFER_SIZE) buf.shift();
+      setPerfStats(computePerfStats(buf, pendingRef.current - 1));
+      if (import.meta.env.DEV) console.debug("[perf]", { gap: `${sample.chunkGapMs.toFixed(0)}ms`, stt: `${sttMs.toFixed(0)}ms`, parse: `${parseMs.toFixed(0)}ms`, total: `${totalMs.toFixed(0)}ms`, textLen, queue: pendingRef.current - 1 });
       pendingRef.current--;
       if (pendingRef.current === 0) setProcessing(false);
     }
@@ -540,11 +576,14 @@ function RecordPage() {
         <div className="rounded-xl border border-success/25 bg-success/5 p-2"><p className="text-sm font-black tabular-nums text-success">{reliability?.matchRate ? `${Math.round(reliability.matchRate * 100)}%` : "—"}</p><p className="text-[9.5px] text-muted-foreground">معدل التطابق</p></div>
       </div>
 
+      {recording && perfStats.count > 0 && <PerfPanel stats={perfStats} />}
+
       {!recording && savedSessionId && entries.length > 0 && <Link to="/sessions/$id" params={{ id: savedSessionId }} className="mb-3 block rounded-2xl bg-primary p-3 text-center text-sm font-bold text-primary-foreground">عرض تقرير الجلسة</Link>}
       {!recording && reviewOpen && <SessionPreview entries={entries} transcript={transcript} elapsed={elapsed} saving={saving} onSave={saveReviewedSession} onDiscard={discardDraft} onDownload={exportCurrentPDF} />}
 
       <div className="flex-1 space-y-2 pb-4">
-        <AnimatePresence initial={false}>{entries.map((e) => <PlateCard key={e.id} entry={e} />)}</AnimatePresence>
+        <AnimatePresence initial={false}>{entries.slice(0, 80).map((e) => <PlateCard key={e.id} entry={e} />)}</AnimatePresence>
+        {entries.length > 80 && <p className="text-center text-[10px] text-muted-foreground">عرض أحدث 80 لوحة — الكل يظهر في تقرير الجلسة</p>}
         {entries.length === 0 && !recording && <div className="rounded-2xl bg-muted/30 p-6 text-center text-sm text-muted-foreground"><Info className="mx-auto mb-2 h-6 w-6" />اضغط زر الميكروفون وابدأ بنطق أرقام اللوحات</div>}
       </div>
 
@@ -588,13 +627,38 @@ function CalibrationSheet({ onClose }: { onClose: () => void }) {
   return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 backdrop-blur-sm"><motion.div initial={{ y: 400 }} animate={{ y: 0 }} exit={{ y: 400 }} transition={{ type: "spring", stiffness: 300, damping: 30 }} className="w-full max-w-[440px] rounded-t-3xl bg-background p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-black">معايرة الميكروفون</h2><button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button></div><p className="mb-4 text-xs text-muted-foreground">تحدّث بصوتك الطبيعي لعدة ثوانٍ. راقب المؤشّر ليتأكد من وضوح الصوت.</p>{error ? <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{error}</div> : <><div className="mb-2 flex items-center gap-2"><Mic className={`h-5 w-5 ${running ? "text-primary" : "text-muted-foreground"}`} /><span className="text-xs font-bold">مستوى الصوت الحالي</span><span className="ml-auto text-xs tabular-nums text-muted-foreground">{barPct}%</span></div><div className="mb-4 h-4 overflow-hidden rounded-full bg-muted"><motion.div className={`h-full ${rating.bar}`} animate={{ width: `${barPct}%` }} transition={{ duration: 0.1 }} /></div><div className="mb-1 text-xs text-muted-foreground">أعلى قيمة مسجّلة: <span className="font-bold text-foreground tabular-nums">{Math.round(maxLevel * 350)}%</span></div><div className={`rounded-2xl border p-3 text-sm font-bold ${rating.color} ${running ? "border-current/30" : "border-transparent"}`}>{running ? rating.label : "جاري تشغيل الميكروفون..."}</div></>}<button onClick={onClose} className="mt-5 w-full rounded-2xl bg-primary py-3 text-sm font-black text-primary-foreground">تم</button></motion.div></motion.div>;
 }
 
-function PlateCard({ entry }: { entry: PlateEntry }) {
+function PerfPanel({ stats }: { stats: PerfStats }) {
+  const slow = stats.avgTotalMs > 1500 || stats.queue > 2;
+  return (
+    <div className={`mb-3 rounded-2xl border p-2.5 ${slow ? "border-warning/40 bg-warning/5" : "border-primary/25 bg-primary/5"}`}>
+      <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold">
+        <Activity className={`h-3.5 w-3.5 ${slow ? "text-warning" : "text-primary"}`} />
+        <span>أداء المعالجة</span>
+        <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">آخر {stats.count} تقطيع{stats.queue > 0 ? ` • قائمة انتظار ${stats.queue}` : ""}</span>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5 text-center">
+        <PerfCell label="فجوة" value={`${stats.avgChunkGapMs.toFixed(0)}`} unit="ms" />
+        <PerfCell label="نص" value={`${stats.avgSttMs.toFixed(0)}`} unit="ms" />
+        <PerfCell label="مطابقة" value={`${stats.avgMatchMs.toFixed(0)}`} unit="ms" />
+        <PerfCell label="إجمالي" value={`${stats.avgTotalMs.toFixed(0)}`} unit="ms" highlight={slow} />
+      </div>
+    </div>
+  );
+}
+function PerfCell({ label, value, unit, highlight }: { label: string; value: string; unit: string; highlight?: boolean }) {
+  return <div className={`rounded-lg bg-background/70 p-1.5 ${highlight ? "text-warning" : ""}`}><p className="text-xs font-black tabular-nums">{value}<span className="text-[9px] font-normal text-muted-foreground">{unit}</span></p><p className="text-[9px] text-muted-foreground">{label}</p></div>;
+}
+
+const PlateCard = memo(function PlateCard({ entry }: { entry: PlateEntry }) {
   const [open, setOpen] = useState(false);
   const matched = !!entry.matchedPlate;
   const lettersSpaced = entry.letters.split("").join(" ");
   const digitsSpaced = entry.digits.split("").join(" ");
-  return <motion.div initial={{ opacity: 0, x: -20, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20 }} layout onClick={() => matched && setOpen((o) => !o)} className={`glass overflow-hidden rounded-2xl p-3 ${matched ? "border border-success/50 glow-success cursor-pointer" : !entry.complete ? "border border-warning/40" : "border border-border"}`}><div className="flex items-start gap-3"><div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${matched ? "bg-success/20 text-success" : !entry.complete ? "bg-warning/20 text-warning" : "bg-muted"}`}>{matched ? <CheckCircle2 className="h-5 w-5" /> : !entry.complete ? <AlertTriangle className="h-5 w-5" /> : <Car className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-xl font-black tracking-[0.3em]" dir="rtl"><span className="text-primary">{lettersSpaced}</span><span className="mx-2 text-muted-foreground">—</span><span>{digitsSpaced}</span></p><p className="text-[10px] text-muted-foreground">{matched ? "✓ مطابقة" : !entry.complete ? "غير مكتملة" : "غير موجودة بالقاعدة"} • {new Date(entry.spokenAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{entry.confidence < 0.85 && ` • ثقة ${Math.round(entry.confidence * 100)}%`}</p>{entry.suspectPart && <p className="mt-1 rounded-lg bg-warning/10 px-2 py-1 text-[10px] text-warning">⚠ جزء مشكوك: <span className="font-mono">{entry.suspectPart}</span>{entry.correctionNote && ` — ${entry.correctionNote}`}</p>}{!entry.complete && <MissingPlateParts entry={entry} />}</div></div><AnimatePresence>{open && matched && entry.matchedPlate && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 overflow-hidden border-t border-border pt-3 text-xs"><Row label="النوع" value={entry.matchedPlate.car_type} /><Row label="البنك" value={entry.matchedPlate.bank} /><Row label="الهيكل" value={entry.matchedPlate.chassis} /><Row label="التاريخ" value={entry.matchedPlate.plate_date} /></motion.div>}</AnimatePresence></motion.div>;
-}
+  return <motion.div initial={{ opacity: 0, x: -20, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20 }} onClick={() => matched && setOpen((o) => !o)} className={`glass overflow-hidden rounded-2xl p-3 ${matched ? "border border-success/50 glow-success cursor-pointer" : !entry.complete ? "border border-warning/40" : "border border-border"}`}><div className="flex items-start gap-3"><div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${matched ? "bg-success/20 text-success" : !entry.complete ? "bg-warning/20 text-warning" : "bg-muted"}`}>{matched ? <CheckCircle2 className="h-5 w-5" /> : !entry.complete ? <AlertTriangle className="h-5 w-5" /> : <Car className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-xl font-black tracking-[0.3em]" dir="rtl"><span className="text-primary">{lettersSpaced}</span><span className="mx-2 text-muted-foreground">—</span><span>{digitsSpaced}</span></p><p className="text-[10px] text-muted-foreground">{matched ? "✓ مطابقة" : !entry.complete ? "غير مكتملة" : "غير موجودة بالقاعدة"} • {new Date(entry.spokenAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{entry.confidence < 0.85 && ` • ثقة ${Math.round(entry.confidence * 100)}%`}</p>{entry.suspectPart && <p className="mt-1 rounded-lg bg-warning/10 px-2 py-1 text-[10px] text-warning">⚠ جزء مشكوك: <span className="font-mono">{entry.suspectPart}</span>{entry.correctionNote && ` — ${entry.correctionNote}`}</p>}{!entry.complete && <MissingPlateParts entry={entry} />}</div></div><AnimatePresence>{open && matched && entry.matchedPlate && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 overflow-hidden border-t border-border pt-3 text-xs"><Row label="النوع" value={entry.matchedPlate.car_type} /><Row label="البنك" value={entry.matchedPlate.bank} /><Row label="الهيكل" value={entry.matchedPlate.chassis} /><Row label="التاريخ" value={entry.matchedPlate.plate_date} /></motion.div>}</AnimatePresence></motion.div>;
+}, (prev, next) => {
+  const a = prev.entry, b = next.entry;
+  return a.id === b.id && a.digits === b.digits && a.letters === b.letters && a.complete === b.complete && !!a.matchedPlate === !!b.matchedPlate && a.spokenText === b.spokenText && a.correctionNote === b.correctionNote;
+});
 
 function MissingPlateParts({ entry }: { entry: PlateEntry }) {
   const letters = entry.letters.split("");
