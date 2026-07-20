@@ -43,6 +43,10 @@ function SessionDetailPage() {
   const [playing, setPlaying] = useState(false);
   const [playbackIdx, setPlaybackIdx] = useState<number | null>(null);
   const [speed, setSpeed] = useState(1);
+  const [includeWaypoints, setIncludeWaypoints] = useState(true);
+  const [rebuilt, setRebuilt] = useState<GeoPoint[] | null>(null);
+  const [rebuildProgress, setRebuildProgress] = useState<number | null>(null);
+  const [useRebuilt, setUseRebuilt] = useState(false);
   const playRef = useRef<number | null>(null);
 
   const { data: session } = useQuery({
