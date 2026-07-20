@@ -244,7 +244,9 @@ function RecordPage() {
       setTranscript((prev) => (prev + " " + text).trim().slice(-3000));
       const tParse = performance.now();
       const plates = extractPlates(text);
+      parseMs = performance.now() - tParse;
       if (plates.length === 0) return;
+      const tMatch = performance.now();
 
       for (const p of plates) {
         if (!p.complete && !plateAppearsInText(p.letters, p.digits, text)) continue;
