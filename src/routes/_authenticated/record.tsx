@@ -142,6 +142,7 @@ function RecordPage() {
             complete: p.complete, confidence: p.confidence, suspectPart: p.suspectPart, correctionNote: p.correctionNote,
             matchedPlate: isMatched ? { plate_raw: match!.plate_raw, bank: match!.bank, car_type: match!.car_type, chassis: match!.chassis, plate_date: match!.plate_date } : undefined,
           } : e));
+          setLastCapture({ raw: p.raw, complete: p.complete, matched: isMatched, at: Date.now() });
           if (p.complete) {
             growableRef.current.delete(key);
             finalizedRef.current.add(key);
@@ -151,6 +152,7 @@ function RecordPage() {
             growableRef.current.set(key, { ...existing, digits: p.digits });
           }
           continue;
+
         }
 
         if (finalizedRef.current.has(key)) continue;
@@ -179,6 +181,7 @@ function RecordPage() {
           matchedPlate: isMatched ? { plate_raw: match!.plate_raw, bank: match!.bank, car_type: match!.car_type, chassis: match!.chassis, plate_date: match!.plate_date } : undefined,
         };
         setEntries((prev) => [entry, ...prev].slice(0, 500));
+        setLastCapture({ raw: p.raw, complete: p.complete, matched: isMatched, at: now });
         if (p.complete) {
           finalizedRef.current.add(key);
           if (isMatched) {
@@ -189,6 +192,7 @@ function RecordPage() {
           growableRef.current.set(key, { entryId, dbId: inserted.id, digits: p.digits });
         }
       }
+
     } catch (err) {
       console.error(err);
     } finally {
