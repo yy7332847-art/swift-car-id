@@ -498,6 +498,73 @@ function Row({ label, value }: { label: string; value: string | null }) {
   );
 }
 
+function LiveStatusBar({
+  processing, transcript, lastCapture, level,
+}: {
+  processing: boolean;
+  transcript: string;
+  lastCapture: { raw: string; complete: boolean; matched: boolean; at: number } | null;
+  level: number;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 300);
+    return () => clearInterval(iv);
+  }, []);
+  const recent = lastCapture && now - lastCapture.at < 2500 ? lastCapture : null;
+  const state: "captured" | "transcribing" | "listening" =
+    recent ? "captured" : processing ? "transcribing" : "listening";
+
+  const tone =
+    state === "captured"
+      ? recent!.matched
+        ? { pill: "bg-success/20 text-success border-success/40", bar: "bg-success" }
+        : recent!.complete
+          ? { pill: "bg-primary/20 text-primary border-primary/40", bar: "bg-primary" }
+          : { pill: "bg-warning/20 text-warning border-warning/40", bar: "bg-warning" }
+      : state === "transcribing"
+        ? { pill: "bg-primary/15 text-primary border-primary/30", bar: "bg-primary" }
+        : { pill: "bg-muted text-muted-foreground border-border", bar: "bg-primary/60" };
+
+  const label =
+    state === "captured"
+      ? recent!.matched
+        ? `تطابق: ${recent!.raw}`
+        : recent!.complete
+          ? `التقطت: ${recent!.raw}`
+          : `ناقصة: ${recent!.raw}`
+      : state === "transcribing"
+        ? "جاري التعرّف على الصوت..."
+        : "الاستماع — تحدّث بأرقام اللوحة";
+
+  const Icon = state === "captured" ? (recent!.matched ? CheckCircle2 : recent!.complete ? Sparkles : AlertTriangle) : state === "transcribing" ? Loader2 : Radio;
+  const barPct = state === "transcribing" ? undefined : Math.min(100, Math.round(level * 350));
+
+  return (
+    <div className={`mb-3 overflow-hidden rounded-2xl border p-2.5 ${tone.pill.replace("text-", "border-").split(" ")[2] ?? ""}`}>
+      <div className="flex items-center gap-2">
+        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${tone.pill}`}>
+          <Icon className={`h-3.5 w-3.5 ${state === "transcribing" ? "animate-spin" : ""}`} />
+          {label}
+        </span>
+        {transcript && (
+          <span className="ml-auto truncate text-[10.5px] text-muted-foreground" dir="rtl">
+            {transcript.slice(-80)}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/60">
+        {state === "transcribing" ? (
+          <motion.div className={`h-full ${tone.bar}`} initial={{ x: "-40%", width: "40%" }} animate={{ x: "100%" }} transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }} />
+        ) : (
+          <motion.div className={`h-full ${tone.bar}`} animate={{ width: `${barPct}%` }} transition={{ duration: 0.15 }} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function formatTime(s: number): string {
   const m = Math.floor(s / 60);
   const r = s % 60;
