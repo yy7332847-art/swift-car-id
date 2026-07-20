@@ -2,7 +2,6 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   bumpAttempt,
   deletePlate,
-  deletePlatesFor,
   deleteSession,
   earliestNextRetryAt,
   listAllPendingPlates,
