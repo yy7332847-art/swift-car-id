@@ -262,14 +262,40 @@ function SessionDetailPage() {
             </div>
           )}
           {path.length >= 2 && (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button onClick={() => exportTrack("gpx")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
-                <Share2 className="h-3.5 w-3.5 text-primary" /> مشاركة GPX
-              </button>
-              <button onClick={() => exportTrack("kml")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
-                <MapIcon className="h-3.5 w-3.5 text-success" /> مشاركة KML
-              </button>
-            </div>
+            <>
+              <label className="mt-2 flex items-center gap-2 text-[11px] font-bold text-muted-foreground">
+                <input type="checkbox" checked={includeWaypoints} onChange={(e) => setIncludeWaypoints(e.target.checked)} className="accent-primary" />
+                إدراج نقاط اللوحات كمحددات في GPX/KML
+              </label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button onClick={() => exportTrack("gpx")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
+                  <Share2 className="h-3.5 w-3.5 text-primary" /> مشاركة GPX
+                </button>
+                <button onClick={() => exportTrack("kml")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
+                  <MapIcon className="h-3.5 w-3.5 text-success" /> مشاركة KML
+                </button>
+              </div>
+              <div className="mt-3 rounded-2xl border border-primary/30 bg-primary/5 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-black"><Wand2 className="h-3.5 w-3.5 text-primary" /> إعادة بناء بيانات الخريطة</span>
+                  <button onClick={handleRebuild} disabled={rebuildProgress != null} className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[11px] font-bold text-primary-foreground disabled:opacity-50">
+                    {rebuildProgress != null ? <><Loader2 className="h-3 w-3 animate-spin" /> {rebuildProgress}%</> : "إعادة الفلترة والتنعيم"}
+                  </button>
+                </div>
+                {rebuilt && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2 text-center text-[11px]">
+                      <div className="rounded-lg bg-background/70 p-2"><p className="font-black tabular-nums">{rawPath.length}</p><p className="text-[9.5px] text-muted-foreground">قبل</p></div>
+                      <div className="rounded-lg bg-success/10 p-2"><p className="font-black tabular-nums text-success">{rebuilt.length}</p><p className="text-[9.5px] text-muted-foreground">بعد التنعيم</p></div>
+                    </div>
+                    <label className="mt-2 flex items-center gap-2 text-[11px] font-bold">
+                      <input type="checkbox" checked={useRebuilt} onChange={(e) => setUseRebuilt(e.target.checked)} className="accent-primary" />
+                      عرض النسخة المُنعّمة على الخريطة (قابل للمقارنة)
+                    </label>
+                  </>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
