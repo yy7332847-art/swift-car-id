@@ -34,3 +34,23 @@ npx cap open android
 - **الميكروفون** — للتسجيل الصوتي.
 
 الأذونات معرّفة داخل `AndroidManifest.xml` تلقائيًا بواسطة `@capacitor/geolocation`. إذا رفض المستخدم، تظهر شاشة داخل التطبيق ترشده لتفعيلها من إعدادات الجهاز.
+
+## 5) تتبع الموقع في الخلفية (اختياري لكنه موصى به)
+
+عند إغلاق الشاشة أثناء التسجيل، يوقف Android محدد الموقع العادي. لتشغيله كخدمة أمامية:
+
+```bash
+bun add @capacitor-community/background-geolocation
+npx cap sync android
+```
+
+بعد المزامنة سيُضاف تلقائيًا لـ `AndroidManifest.xml`:
+`ACCESS_FINE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE_LOCATION`.
+
+عند بدء الجلسة سيظهر إشعار "PlateCheck — تسجيل جلسة" ويستمر GPS بالعمل حتى مع إغلاق الشاشة.
+
+## 6) رفع دقة GPS
+
+- إعدادات Android ← الموقع ← الوضع = "**دقة عالية**".
+- فعّل **Google Location Accuracy** إن ظهر (يستعمل GPS + Wi-Fi + شبكات).
+- عطّل "توفير البطارية" للتطبيق حتى لا يقلل معدل تحديثات الموقع.
