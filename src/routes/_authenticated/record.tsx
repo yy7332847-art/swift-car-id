@@ -352,11 +352,12 @@ function RecordPage() {
     setGeoError(null);
     geoWatchRef.current = await watchGeo(
       (raw) => {
-        const pt: GeoPoint = { lat: raw.lat, lng: raw.lng, t: Date.now(), acc: raw.acc };
+        const pt: GeoPoint = { lat: raw.lat, lng: raw.lng, t: Date.now(), acc: raw.acc, spd: raw.spd ?? undefined, hdg: raw.hdg ?? undefined };
         currentPosRef.current = pt;
         setGeoOn(true);
         const prev = rawPathRef.current[rawPathRef.current.length - 1] ?? null;
-        if (!shouldAcceptPoint(prev, pt)) return;
+        const speed = pt.spd ?? (prev && pt.t && prev.t ? (Math.hypot(pt.lat - prev.lat, pt.lng - prev.lng) * 111000) / Math.max(0.1, (pt.t - prev.t) / 1000) : 0);
+        if (!shouldAcceptPoint(prev, pt, { speed, bufferSize: rawPathRef.current.length })) return;
         rawPathRef.current = [...rawPathRef.current, pt];
         const smoothed = smoothPath(rawPathRef.current);
         pathRef.current = smoothed;
@@ -367,6 +368,7 @@ function RecordPage() {
         setGeoOn(false);
         if (code === "denied") setGeoPerm("denied");
       },
+      { background: true, backgroundTitle: "PlateCheck — تسجيل جلسة", backgroundMessage: "يتم تتبع مسار العربية أثناء التسجيل" },
     );
   }
 
