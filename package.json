@@ -49,6 +49,7 @@
     "@tanstack/react-query": "^5.101.1",
     "@tanstack/react-router": "^1.170.16",
     "@tanstack/react-start": "^1.168.26",
+    "@tanstack/react-virtual": "^3.14.6",
     "@tanstack/router-plugin": "^1.168.18",
     "@types/leaflet.heat": "^0.2.5",
     "canvas-confetti": "^1.9.4",
