@@ -12,6 +12,8 @@ import { TrackingMap } from "@/components/TrackingMap";
 import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, runGeoPreflight, isAndroid, type GeoPoint, type WatchHandle, type PermissionState, type GeoPreflight } from "@/lib/geo";
 import { loadSettings } from "@/lib/settings";
 import { detectDuplicate, formatGap, formatDistance, type DuplicateMatch } from "@/lib/duplicate-detection";
+import { enqueueSession, enqueuePlates, getCachedPlateByNormalized } from "@/lib/offline-store";
+import { syncNow } from "@/lib/sync-queue";
 
 interface PerfSample { chunkGapMs: number; sttMs: number; parseMs: number; matchMs: number; totalMs: number; textLen: number; at: number }
 interface PerfStats { count: number; avgChunkGapMs: number; avgSttMs: number; avgParseMs: number; avgMatchMs: number; avgTotalMs: number; lastLagMs: number; queue: number }
