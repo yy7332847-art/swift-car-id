@@ -2,13 +2,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "motion/react";
-import { ChevronRight, Download, FileText, CheckCircle2, AlertTriangle, Car, MapPin, ExternalLink, Play, Pause, Share2, Map as MapIcon } from "lucide-react";
+import { ChevronRight, Download, FileText, CheckCircle2, AlertTriangle, Car, MapPin, ExternalLink, Play, Pause, Share2, Map as MapIcon, Wand2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { TrackingMap, openInMaps } from "@/components/TrackingMap";
-import { pathToGPX, pathToKML, shareOrDownload, type GeoPoint } from "@/lib/geo";
+import { pathToGPX, pathToKML, shareOrDownload, rebuildPath, type GeoPoint, type PlateWaypoint } from "@/lib/geo";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/sessions/$id")({
