@@ -5,14 +5,12 @@ import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, FileText, Save, Trash2, Activity } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, Activity } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
 import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, runGeoPreflight, isAndroid, type GeoPoint, type WatchHandle, type PermissionState, type GeoPreflight } from "@/lib/geo";
 import { loadSettings } from "@/lib/settings";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 
 interface PerfSample { chunkGapMs: number; sttMs: number; parseMs: number; matchMs: number; totalMs: number; textLen: number; at: number }
 interface PerfStats { count: number; avgChunkGapMs: number; avgSttMs: number; avgParseMs: number; avgMatchMs: number; avgTotalMs: number; lastLagMs: number; queue: number }
@@ -39,16 +37,6 @@ interface PlateEntry extends DetectedPlate {
   latitude?: number | null;
   longitude?: number | null;
   matchedPlate?: Omit<PlateInfo, "id" | "plate_normalized">;
-}
-
-interface DraftSession {
-  draftId: string;
-  userId: string;
-  startedAt: number;
-  entries: PlateEntry[];
-  transcript: string;
-  path: GeoPoint[];
-  wasRecording: boolean;
 }
 
 const DRAFT_KEY = "platecheck.active-recording-draft.v4";
@@ -575,24 +563,6 @@ function RecordPage() {
     toast.success("تم حذف المسودة");
   }
 
-  function exportCurrentPDF() {
-    const current = entriesRef.current;
-    const doc = new jsPDF({ orientation: "portrait", unit: "pt" });
-    doc.setFontSize(14);
-    doc.text(`Current Session Preview - ${new Date(startedAt ?? Date.now()).toLocaleString()}`, 40, 40);
-    doc.setFontSize(10);
-    doc.text(`Duration: ${formatTime(elapsed)} | Total: ${current.length} | Matched: ${current.filter((e) => e.matchedPlate).length} | Incomplete: ${current.filter((e) => !e.complete).length}`, 40, 60);
-    if (transcript) doc.text(`Transcript: ${transcript.slice(-900)}`, 40, 78, { maxWidth: 520 });
-    autoTable(doc, {
-      startY: transcript ? 122 : 86,
-      head: [["#", "Plate", "Status", "Spoken Text", "Note", "Lat", "Lng"]],
-      body: [...current].reverse().map((e, i) => [i + 1, e.raw, e.matchedPlate ? "MATCH" : !e.complete ? "INCOMPLETE" : "NOT FOUND", e.spokenText, e.correctionNote ?? e.suspectPart ?? "", e.latitude?.toFixed(5) ?? "", e.longitude?.toFixed(5) ?? ""]),
-      styles: { fontSize: 7, cellWidth: "wrap" },
-      headStyles: { fillColor: [30, 100, 180] },
-    });
-    doc.save(`current-session-${Date.now()}.pdf`);
-  }
-
   useEffect(() => () => { stopInstantSpeech(); void recorderRef.current?.stop(); stopGeoTracking(); }, []);
 
   const notActive = sub && !sub.active && !admin;
@@ -674,19 +644,6 @@ function RecordPage() {
 
       <AnimatePresence>{calibrating && <CalibrationSheet onClose={() => setCalibrating(false)} />}</AnimatePresence>
       <AnimatePresence>{preflightOpen && <GeoPreflightSheet loading={preflightLoading} result={preflight} onCancel={() => setPreflightOpen(false)} onContinue={confirmAndStart} onRetry={async () => { setPreflightLoading(true); try { setPreflight(await runGeoPreflight()); } finally { setPreflightLoading(false); } }} />}</AnimatePresence>
-    </div>
-  );
-}
-
-function SessionPreview({ entries, transcript, elapsed, saving, onSave, onDiscard, onDownload }: { entries: PlateEntry[]; transcript: string; elapsed: number; saving: boolean; onSave: () => void; onDiscard: () => void; onDownload: () => void }) {
-  const matched = entries.filter((e) => e.matchedPlate).length;
-  const incomplete = entries.filter((e) => !e.complete).length;
-  return (
-    <div className="mb-4 rounded-3xl border border-primary/30 bg-primary/5 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="text-base font-black">معاينة قبل الحفظ</h2><p className="text-[11px] text-muted-foreground">راجع النص والتطابقات ثم احفظ الجلسة نهائياً</p></div><span className="rounded-full bg-background px-2.5 py-1 text-[10px] font-bold tabular-nums">{formatTime(elapsed)}</span></div>
-      <div className="mb-3 grid grid-cols-3 gap-2 text-center"><div className="rounded-xl bg-background/70 p-2"><p className="font-black">{entries.length}</p><p className="text-[9px] text-muted-foreground">مكتشفة</p></div><div className="rounded-xl bg-success/10 p-2"><p className="font-black text-success">{matched}</p><p className="text-[9px] text-muted-foreground">مطابقة</p></div><div className="rounded-xl bg-warning/10 p-2"><p className="font-black text-warning">{incomplete}</p><p className="text-[9px] text-muted-foreground">ناقصة</p></div></div>
-      <div className="mb-3 max-h-24 overflow-auto rounded-2xl bg-background/70 p-3 text-xs leading-6 text-muted-foreground" dir="rtl">{transcript || "لا يوجد نص مسجل"}</div>
-      <div className="grid grid-cols-3 gap-2"><button onClick={onDownload} className="inline-flex items-center justify-center gap-1 rounded-xl bg-background px-2 py-2 text-[11px] font-bold"><FileText className="h-3.5 w-3.5" /> PDF</button><button onClick={onDiscard} className="inline-flex items-center justify-center gap-1 rounded-xl bg-destructive/15 px-2 py-2 text-[11px] font-bold text-destructive"><Trash2 className="h-3.5 w-3.5" /> حذف</button><button onClick={onSave} disabled={saving} className="inline-flex items-center justify-center gap-1 rounded-xl bg-primary px-2 py-2 text-[11px] font-bold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} حفظ</button></div>
     </div>
   );
 }
