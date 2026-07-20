@@ -62,15 +62,17 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   });
   const ac = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
   const source = ac.createMediaStreamSource(stream);
-  const processor = ac.createScriptProcessor(4096, 1, 1);
+  const processor = ac.createScriptProcessor(2048, 1, 1);
 
   let buffer: Float32Array[] = [];
   let lastFlush = performance.now();
   let bufSamples = 0;
+  // Overlap tail — retain the last ~0.4s of samples so a plate cut across chunks is still decoded.
+  let overlap: Float32Array | null = null;
+  const overlapSeconds = 0.4;
 
   processor.onaudioprocess = (e) => {
     const ch = e.inputBuffer.getChannelData(0);
-    // level (RMS)
     if (opts.onLevel) {
       let sum = 0;
       for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i];
@@ -85,14 +87,17 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   };
 
   function flush() {
-    if (bufSamples < ac.sampleRate * 0.5) return; // skip tiny chunks
-    const merged = new Float32Array(bufSamples);
+    if (bufSamples < ac.sampleRate * 0.4) return;
+    const merged = new Float32Array((overlap?.length ?? 0) + bufSamples);
     let o = 0;
+    if (overlap) { merged.set(overlap, 0); o = overlap.length; }
     for (const b of buffer) { merged.set(b, o); o += b.length; }
+    // Keep tail as overlap for next chunk.
+    const tailLen = Math.min(merged.length, Math.floor(ac.sampleRate * overlapSeconds));
+    overlap = merged.slice(merged.length - tailLen);
     buffer = []; bufSamples = 0;
     lastFlush = performance.now();
     const ds = downsample(merged, ac.sampleRate, targetRate);
-    // Silence check: skip if RMS < threshold
     let sum = 0;
     for (let i = 0; i < ds.length; i++) sum += ds[i] * ds[i];
     const rms = Math.sqrt(sum / ds.length);
@@ -114,3 +119,4 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
     },
   };
 }
+

@@ -37,16 +37,43 @@
   --font-arabic: "Cairo", "Tajawal", ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Light theme (default) */
 :root {
   --radius: 1rem;
-  /* Deep midnight base with neon accents */
+  --background: oklch(0.985 0.005 240);
+  --foreground: oklch(0.18 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 260);
+  --primary: oklch(0.55 0.16 200);
+  --primary-foreground: oklch(0.98 0.005 240);
+  --secondary: oklch(0.94 0.01 240);
+  --secondary-foreground: oklch(0.18 0.02 260);
+  --muted: oklch(0.94 0.01 240);
+  --muted-foreground: oklch(0.5 0.02 260);
+  --accent: oklch(0.55 0.16 200);
+  --accent-foreground: oklch(0.98 0.005 240);
+  --success: oklch(0.62 0.17 155);
+  --success-foreground: oklch(0.98 0.005 240);
+  --warning: oklch(0.7 0.17 75);
+  --warning-foreground: oklch(0.18 0.02 260);
+  --destructive: oklch(0.6 0.24 25);
+  --destructive-foreground: oklch(0.98 0.005 240);
+  --border: oklch(0.9 0.01 240);
+  --input: oklch(0.92 0.01 240);
+  --ring: oklch(0.55 0.16 200);
+  color-scheme: light;
+}
+
+.dark {
   --background: oklch(0.16 0.02 260);
   --foreground: oklch(0.98 0.005 260);
   --card: oklch(0.21 0.025 260);
   --card-foreground: oklch(0.98 0.005 260);
   --popover: oklch(0.22 0.025 260);
   --popover-foreground: oklch(0.98 0.005 260);
-  --primary: oklch(0.72 0.18 195);          /* cyan */
+  --primary: oklch(0.72 0.18 195);
   --primary-foreground: oklch(0.15 0.02 260);
   --secondary: oklch(0.28 0.03 260);
   --secondary-foreground: oklch(0.98 0.005 260);
@@ -54,41 +81,48 @@
   --muted-foreground: oklch(0.7 0.02 260);
   --accent: oklch(0.72 0.18 195);
   --accent-foreground: oklch(0.15 0.02 260);
-  --success: oklch(0.78 0.2 155);           /* neon green */
+  --success: oklch(0.78 0.2 155);
   --success-foreground: oklch(0.15 0.02 260);
-  --warning: oklch(0.82 0.17 85);           /* amber */
+  --warning: oklch(0.82 0.17 85);
   --warning-foreground: oklch(0.15 0.02 260);
-  --destructive: oklch(0.68 0.24 25);       /* red */
+  --destructive: oklch(0.68 0.24 25);
   --destructive-foreground: oklch(0.98 0.005 260);
   --border: oklch(0.3 0.025 260);
   --input: oklch(0.28 0.025 260);
   --ring: oklch(0.72 0.18 195);
+  color-scheme: dark;
 }
-
-.dark { color-scheme: dark; }
 
 @layer base {
   html, body { direction: rtl; }
   * { border-color: var(--color-border); }
   body {
-    background:
-      radial-gradient(1200px 600px at 80% -10%, oklch(0.35 0.15 200 / 0.35), transparent 60%),
-      radial-gradient(1000px 500px at -10% 110%, oklch(0.35 0.15 300 / 0.3), transparent 60%),
-      var(--color-background);
+    background: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-arabic);
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
+  }
+  .dark body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, oklch(0.35 0.15 200 / 0.35), transparent 60%),
+      radial-gradient(1000px 500px at -10% 110%, oklch(0.35 0.15 300 / 0.3), transparent 60%),
+      var(--color-background);
+  }
+  :root:not(.dark) body {
+    background:
+      radial-gradient(1000px 500px at 90% -10%, oklch(0.85 0.09 200 / 0.5), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, oklch(0.88 0.07 280 / 0.4), transparent 60%),
+      var(--color-background);
   }
   input, button, textarea, select { font-family: inherit; }
 }
 
 @layer utilities {
   .glass {
-    background: color-mix(in oklch, var(--color-card) 70%, transparent);
+    background: color-mix(in oklch, var(--color-card) 78%, transparent);
     backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border: 1px solid color-mix(in oklch, white 8%, transparent);
+    border: 1px solid color-mix(in oklch, var(--color-foreground) 8%, transparent);
   }
   .glow-primary { box-shadow: 0 0 40px -8px color-mix(in oklch, var(--color-primary) 60%, transparent); }
   .glow-success { box-shadow: 0 0 50px -6px color-mix(in oklch, var(--color-success) 55%, transparent); }
