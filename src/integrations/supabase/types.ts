@@ -47,6 +47,10 @@ export type Database = {
           confidence: number | null
           correction_note: string | null
           detected_at: string
+          duplicate_decision: string | null
+          duplicate_distance_m: number | null
+          duplicate_gap_seconds: number | null
+          duplicate_of_id: string | null
           id: string
           is_incomplete: boolean
           is_matched: boolean
@@ -65,6 +69,10 @@ export type Database = {
           confidence?: number | null
           correction_note?: string | null
           detected_at?: string
+          duplicate_decision?: string | null
+          duplicate_distance_m?: number | null
+          duplicate_gap_seconds?: number | null
+          duplicate_of_id?: string | null
           id?: string
           is_incomplete?: boolean
           is_matched?: boolean
@@ -83,6 +91,10 @@ export type Database = {
           confidence?: number | null
           correction_note?: string | null
           detected_at?: string
+          duplicate_decision?: string | null
+          duplicate_distance_m?: number | null
+          duplicate_gap_seconds?: number | null
+          duplicate_of_id?: string | null
           id?: string
           is_incomplete?: boolean
           is_matched?: boolean
@@ -97,6 +109,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "detected_plates_duplicate_of_id_fkey"
+            columns: ["duplicate_of_id"]
+            isOneToOne: false
+            referencedRelation: "detected_plates"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "detected_plates_matched_plate_id_fkey"
             columns: ["matched_plate_id"]
@@ -322,8 +341,10 @@ export type Database = {
           start_longitude: number | null
           started_at: string
           total_detected: number
+          total_duplicates: number
           total_incomplete: number
           total_matched: number
+          total_unique: number
           user_id: string
         }
         Insert: {
@@ -335,8 +356,10 @@ export type Database = {
           start_longitude?: number | null
           started_at?: string
           total_detected?: number
+          total_duplicates?: number
           total_incomplete?: number
           total_matched?: number
+          total_unique?: number
           user_id: string
         }
         Update: {
@@ -348,8 +371,10 @@ export type Database = {
           start_longitude?: number | null
           started_at?: string
           total_detected?: number
+          total_duplicates?: number
           total_incomplete?: number
           total_matched?: number
+          total_unique?: number
           user_id?: string
         }
         Relationships: []

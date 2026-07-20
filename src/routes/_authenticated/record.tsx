@@ -5,12 +5,13 @@ import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, Activity } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, Activity, Copy, GitMerge, HelpCircle } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
 import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, runGeoPreflight, isAndroid, type GeoPoint, type WatchHandle, type PermissionState, type GeoPreflight } from "@/lib/geo";
 import { loadSettings } from "@/lib/settings";
+import { detectDuplicate, formatGap, formatDistance, type DuplicateMatch } from "@/lib/duplicate-detection";
 
 interface PerfSample { chunkGapMs: number; sttMs: number; parseMs: number; matchMs: number; totalMs: number; textLen: number; at: number }
 interface PerfStats { count: number; avgChunkGapMs: number; avgSttMs: number; avgParseMs: number; avgMatchMs: number; avgTotalMs: number; lastLagMs: number; queue: number }
@@ -37,6 +38,10 @@ interface PlateEntry extends DetectedPlate {
   latitude?: number | null;
   longitude?: number | null;
   matchedPlate?: Omit<PlateInfo, "id" | "plate_normalized">;
+  duplicateOfId?: string | null;
+  duplicateDecision?: "same" | "different" | "unresolved" | null;
+  duplicateDistanceM?: number | null;
+  duplicateGapSec?: number | null;
 }
 
 const DRAFT_KEY = "platecheck.active-recording-draft.v4";
@@ -146,6 +151,7 @@ function RecordPage() {
   const [preflight, setPreflight] = useState<GeoPreflight | null>(null);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [preflightLoading, setPreflightLoading] = useState(false);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{ entryId: string; original: PlateEntry; match: DuplicateMatch } | null>(null);
 
   const currentPosRef = useRef<GeoPoint | null>(null);
   const geoWatchRef = useRef<WatchHandle | null>(null);
@@ -268,8 +274,36 @@ function RecordPage() {
       }
 
       const lastSame = finalizedRef.current.get(enriched.normalized);
-      if (lastSame && now - lastSame < 9000) continue;
+      // Short 4s STT-jitter cooldown — still treat as noise, no user prompt.
+      if (lastSame && now - lastSame < 4000) continue;
       const pos = currentPosRef.current;
+
+      // Smart duplicate detection (only after the short cooldown, only for complete plates).
+      let dupInfo: { originalId: string; decision: "same" | "different" | "unresolved"; distanceM: number | null; gapSec: number; needsPrompt: boolean; original: PlateEntry; match: DuplicateMatch } | null = null;
+      if (enriched.complete) {
+        const dupCfg = loadSettings().duplicateDetection;
+        const candidates = entriesRef.current.map((e) => ({ id: e.id, normalized: e.normalized, spokenAt: e.spokenAt, latitude: e.latitude, longitude: e.longitude, duplicateDecision: e.duplicateDecision ?? null, duplicateOfId: e.duplicateOfId ?? null }));
+        const match = detectDuplicate(
+          { normalized: enriched.normalized, latitude: pos?.lat ?? null, longitude: pos?.lng ?? null, spokenAt: now },
+          candidates,
+          dupCfg,
+        );
+        if (match) {
+          const original = entriesRef.current.find((e) => e.id === match.original.id);
+          if (original) {
+            dupInfo = {
+              originalId: original.id,
+              decision: match.kind === "auto" ? "same" : "unresolved",
+              distanceM: match.distanceMeters,
+              gapSec: match.gapSeconds,
+              needsPrompt: match.kind === "prompt",
+              original,
+              match,
+            };
+          }
+        }
+      }
+
       const entry: PlateEntry = {
         ...enriched,
         id: crypto.randomUUID(),
@@ -280,12 +314,21 @@ function RecordPage() {
         latitude: pos?.lat ?? null,
         longitude: pos?.lng ?? null,
         matchedPlate: isMatched ? toMatched(match!) : undefined,
+        duplicateOfId: dupInfo?.originalId ?? null,
+        duplicateDecision: dupInfo?.decision ?? null,
+        duplicateDistanceM: dupInfo?.distanceM ?? null,
+        duplicateGapSec: dupInfo?.gapSec ?? null,
       };
       applyEntries([entry, ...entriesRef.current].slice(0, 500));
       setLastCapture({ raw: enriched.raw, complete: enriched.complete, matched: isMatched, at: now });
       if (enriched.complete) {
         finalizedRef.current.set(enriched.normalized, now);
-        if (isMatched) {
+        if (dupInfo?.needsPrompt) {
+          setDuplicatePrompt({ entryId: entry.id, original: dupInfo.original, match: dupInfo.match });
+          if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
+        } else if (dupInfo?.decision === "same") {
+          toast(`مكرّرة تلقائياً: ${enriched.raw}`, { description: `${formatGap(dupInfo.gapSec)} • ${formatDistance(dupInfo.distanceM)}` });
+        } else if (isMatched) {
           if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
           toast.success(`تطابق: ${enriched.raw}`, { description: match!.car_type || undefined });
         }
@@ -512,6 +555,8 @@ function RecordPage() {
       if (!u.user) throw new Error("غير مسجّل");
       const matched = current.filter((e) => e.matchedPlate).length;
       const incomplete = current.filter((e) => !e.complete).length;
+      const duplicates = current.filter((e) => e.duplicateOfId && e.duplicateDecision === "same").length;
+      const unique = current.length - duplicates;
       const platePath = [...current]
         .reverse()
         .filter((e) => e.latitude != null && e.longitude != null)
@@ -527,6 +572,8 @@ function RecordPage() {
           total_detected: current.length,
           total_matched: matched,
           total_incomplete: incomplete,
+          total_unique: unique,
+          total_duplicates: duplicates,
           path: finalPath as unknown as never,
           start_latitude: first?.lat ?? null,
           start_longitude: first?.lng ?? null,
@@ -536,7 +583,9 @@ function RecordPage() {
         .single();
       if (error || !saved) throw error ?? new Error("تعذر حفظ الجلسة");
       if (current.length > 0) {
+        // Use the client-generated entry.id as the row id so duplicate_of_id references stay valid.
         const rows = [...current].reverse().map((e) => ({
+          id: e.id,
           session_id: saved.id,
           user_id: u.user!.id,
           spoken_text: e.spokenText,
@@ -550,6 +599,10 @@ function RecordPage() {
           correction_note: e.correctionNote ?? null,
           latitude: e.latitude ?? null,
           longitude: e.longitude ?? null,
+          duplicate_of_id: e.duplicateOfId ?? null,
+          duplicate_decision: e.duplicateDecision ?? null,
+          duplicate_distance_m: e.duplicateDistanceM ?? null,
+          duplicate_gap_seconds: e.duplicateGapSec ?? null,
         }));
         const { error: rowsErr } = await supabase.from("detected_plates").insert(rows);
         if (rowsErr) throw rowsErr;
@@ -640,10 +693,11 @@ function RecordPage() {
         </div>
       )}
 
-      <div className="mb-3 grid grid-cols-3 gap-2 text-center">
+      <div className="mb-3 grid grid-cols-4 gap-2 text-center">
         <div className="glass rounded-xl p-2"><p className="text-lg font-black">{entries.length}</p><p className="text-[10px] text-muted-foreground">مكتشفة</p></div>
         <div className="glass rounded-xl p-2 border border-success/40"><p className="text-lg font-black text-success">{entries.filter((e) => e.matchedPlate).length}</p><p className="text-[10px] text-muted-foreground">مطابقة</p></div>
         <div className="glass rounded-xl p-2 border border-warning/40"><p className="text-lg font-black text-warning">{entries.filter((e) => !e.complete).length}</p><p className="text-[10px] text-muted-foreground">غير مكتملة</p></div>
+        <div className="glass rounded-xl p-2 border border-primary/40"><p className="text-lg font-black text-primary tabular-nums">{entries.filter((e) => e.duplicateOfId && e.duplicateDecision === "same").length}</p><p className="text-[10px] text-muted-foreground">مكرّرة</p></div>
       </div>
 
       <div className="mb-3 grid grid-cols-3 gap-2 text-center">
@@ -657,13 +711,33 @@ function RecordPage() {
       {!recording && savedSessionId && entries.length > 0 && <Link to="/sessions/$id" params={{ id: savedSessionId }} className="mb-3 block rounded-2xl bg-primary p-3 text-center text-sm font-bold text-primary-foreground">عرض تقرير الجلسة</Link>}
 
       <div className="flex-1 space-y-2 pb-4">
-        <AnimatePresence initial={false}>{entries.slice(0, 80).map((e) => <PlateCard key={e.id} entry={e} />)}</AnimatePresence>
+        <AnimatePresence initial={false}>{entries.slice(0, 80).map((e) => <PlateCard key={e.id} entry={e} allEntries={entries} onReopenDuplicate={(entry) => {
+          if (!entry.duplicateOfId) return;
+          const original = entries.find((x) => x.id === entry.duplicateOfId);
+          if (!original) return;
+          setDuplicatePrompt({ entryId: entry.id, original, match: { kind: "prompt", original: { id: original.id, normalized: original.normalized, spokenAt: original.spokenAt, latitude: original.latitude, longitude: original.longitude }, distanceMeters: entry.duplicateDistanceM ?? null, gapSeconds: entry.duplicateGapSec ?? 0, reason: "same-window" } });
+        }} />)}</AnimatePresence>
         {entries.length > 80 && <p className="text-center text-[10px] text-muted-foreground">عرض أحدث 80 لوحة — الكل يظهر في تقرير الجلسة</p>}
         {entries.length === 0 && !recording && <div className="rounded-2xl bg-muted/30 p-6 text-center text-sm text-muted-foreground"><Info className="mx-auto mb-2 h-6 w-6" />اضغط زر الميكروفون وابدأ بنطق أرقام اللوحات</div>}
       </div>
 
       <AnimatePresence>{calibrating && <CalibrationSheet onClose={() => setCalibrating(false)} />}</AnimatePresence>
       <AnimatePresence>{preflightOpen && <GeoPreflightSheet loading={preflightLoading} result={preflight} onCancel={() => setPreflightOpen(false)} onContinue={confirmAndStart} onRetry={async () => { setPreflightLoading(true); try { setPreflight(await runGeoPreflight()); } finally { setPreflightLoading(false); } }} />}</AnimatePresence>
+      <AnimatePresence>
+        {duplicatePrompt && (
+          <DuplicatePromptSheet
+            entry={entriesRef.current.find((e) => e.id === duplicatePrompt.entryId) ?? null}
+            original={duplicatePrompt.original}
+            match={duplicatePrompt.match}
+            onClose={() => setDuplicatePrompt(null)}
+            onDecide={(decision) => {
+              applyEntries(entriesRef.current.map((e) => e.id === duplicatePrompt.entryId ? { ...e, duplicateDecision: decision, duplicateOfId: decision === "different" ? null : e.duplicateOfId } : e));
+              setDuplicatePrompt(null);
+              toast(decision === "same" ? "تم دمجها كتكرار" : "تم تأكيدها كسيارة مختلفة");
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -712,15 +786,48 @@ function PerfCell({ label, value, unit, highlight }: { label: string; value: str
   return <div className={`rounded-lg bg-background/70 p-1.5 ${highlight ? "text-warning" : ""}`}><p className="text-xs font-black tabular-nums">{value}<span className="text-[9px] font-normal text-muted-foreground">{unit}</span></p><p className="text-[9px] text-muted-foreground">{label}</p></div>;
 }
 
-const PlateCard = memo(function PlateCard({ entry }: { entry: PlateEntry }) {
+const PlateCard = memo(function PlateCard({ entry, allEntries, onReopenDuplicate }: { entry: PlateEntry; allEntries?: PlateEntry[]; onReopenDuplicate?: (e: PlateEntry) => void }) {
   const [open, setOpen] = useState(false);
   const matched = !!entry.matchedPlate;
   const lettersSpaced = entry.letters.split("").join(" ");
   const digitsSpaced = entry.digits.split("").join(" ");
-  return <motion.div initial={{ opacity: 0, x: -20, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20 }} onClick={() => matched && setOpen((o) => !o)} className={`glass overflow-hidden rounded-2xl p-3 ${matched ? "border border-success/50 glow-success cursor-pointer" : !entry.complete ? "border border-warning/40" : "border border-border"}`}><div className="flex items-start gap-3"><div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${matched ? "bg-success/20 text-success" : !entry.complete ? "bg-warning/20 text-warning" : "bg-muted"}`}>{matched ? <CheckCircle2 className="h-5 w-5" /> : !entry.complete ? <AlertTriangle className="h-5 w-5" /> : <Car className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-xl font-black tracking-[0.3em]"><span className="text-primary" dir="rtl">{lettersSpaced}</span><span className="mx-2 text-muted-foreground">—</span><span dir="ltr">{digitsSpaced}</span></p><p className="text-[10px] text-muted-foreground">{matched ? "✓ مطابقة" : !entry.complete ? "غير مكتملة" : "غير موجودة بالقاعدة"} • {new Date(entry.spokenAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{entry.confidence < 0.85 && ` • ثقة ${Math.round(entry.confidence * 100)}%`}</p>{entry.spokenText && <p className="mt-1 rounded-lg bg-muted/50 px-2 py-1 text-xs font-bold leading-5" dir="rtl">{entry.spokenText}</p>}{entry.suspectPart && <p className="mt-1 rounded-lg bg-warning/10 px-2 py-1 text-[10px] text-warning">⚠ جزء مشكوك: <span className="font-mono">{entry.suspectPart}</span>{entry.correctionNote && ` — ${entry.correctionNote}`}</p>}{!entry.complete && <MissingPlateParts entry={entry} />}</div></div><AnimatePresence>{open && matched && entry.matchedPlate && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 overflow-hidden border-t border-border pt-3 text-xs"><Row label="النوع" value={entry.matchedPlate.car_type} /><Row label="البنك" value={entry.matchedPlate.bank} /><Row label="الهيكل" value={entry.matchedPlate.chassis} /><Row label="التاريخ" value={entry.matchedPlate.plate_date} /></motion.div>}</AnimatePresence></motion.div>;
+  const isDup = !!entry.duplicateOfId && entry.duplicateDecision === "same";
+  const isUnresolved = !!entry.duplicateOfId && (entry.duplicateDecision === "unresolved" || !entry.duplicateDecision);
+  const origIndex = entry.duplicateOfId && allEntries ? allEntries.findIndex((x) => x.id === entry.duplicateOfId) : -1;
+  return (
+    <motion.div initial={{ opacity: 0, x: -20, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20 }} onClick={() => matched && setOpen((o) => !o)} className={`glass overflow-hidden rounded-2xl p-3 ${isDup ? "border border-primary/40 bg-primary/5 opacity-80" : isUnresolved ? "border border-primary/60 bg-primary/10 ring-2 ring-primary/30" : matched ? "border border-success/50 glow-success cursor-pointer" : !entry.complete ? "border border-warning/40" : "border border-border"}`}>
+      {(isDup || isUnresolved) && (
+        <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-primary/15 px-2 py-1 text-[10.5px] font-bold text-primary">
+          <Copy className="h-3 w-3" />
+          {isDup ? "لوحة مُكرّرة" : "هل هي نفس السيارة؟"}
+          <span className="text-muted-foreground">{formatGap(entry.duplicateGapSec ?? 0)}{entry.duplicateDistanceM != null ? ` • ${formatDistance(entry.duplicateDistanceM)}` : ""}</span>
+          {origIndex >= 0 && <span className="text-muted-foreground">• #{allEntries!.length - origIndex}</span>}
+          {isUnresolved && onReopenDuplicate && (
+            <button onClick={(e) => { e.stopPropagation(); onReopenDuplicate(entry); }} className="ml-auto rounded-md bg-primary px-2 py-0.5 text-[10px] font-black text-primary-foreground">
+              راجِع الآن
+            </button>
+          )}
+          {isDup && onReopenDuplicate && (
+            <button onClick={(e) => { e.stopPropagation(); onReopenDuplicate(entry); }} className="ml-auto rounded-md border border-primary/40 px-2 py-0.5 text-[10px] font-bold text-primary">تراجع</button>
+          )}
+        </div>
+      )}
+      <div className="flex items-start gap-3">
+        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${matched ? "bg-success/20 text-success" : !entry.complete ? "bg-warning/20 text-warning" : "bg-muted"}`}>{matched ? <CheckCircle2 className="h-5 w-5" /> : !entry.complete ? <AlertTriangle className="h-5 w-5" /> : <Car className="h-5 w-5" />}</div>
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-xl font-black tracking-[0.3em]"><span className="text-primary" dir="rtl">{lettersSpaced}</span><span className="mx-2 text-muted-foreground">—</span><span dir="ltr">{digitsSpaced}</span></p>
+          <p className="text-[10px] text-muted-foreground">{matched ? "✓ مطابقة" : !entry.complete ? "غير مكتملة" : "غير موجودة بالقاعدة"} • {new Date(entry.spokenAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{entry.confidence < 0.85 && ` • ثقة ${Math.round(entry.confidence * 100)}%`}</p>
+          {entry.spokenText && <p className="mt-1 rounded-lg bg-muted/50 px-2 py-1 text-xs font-bold leading-5" dir="rtl">{entry.spokenText}</p>}
+          {entry.suspectPart && <p className="mt-1 rounded-lg bg-warning/10 px-2 py-1 text-[10px] text-warning">⚠ جزء مشكوك: <span className="font-mono">{entry.suspectPart}</span>{entry.correctionNote && ` — ${entry.correctionNote}`}</p>}
+          {!entry.complete && <MissingPlateParts entry={entry} />}
+        </div>
+      </div>
+      <AnimatePresence>{open && matched && entry.matchedPlate && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 overflow-hidden border-t border-border pt-3 text-xs"><Row label="النوع" value={entry.matchedPlate.car_type} /><Row label="البنك" value={entry.matchedPlate.bank} /><Row label="الهيكل" value={entry.matchedPlate.chassis} /><Row label="التاريخ" value={entry.matchedPlate.plate_date} /></motion.div>}</AnimatePresence>
+    </motion.div>
+  );
 }, (prev, next) => {
   const a = prev.entry, b = next.entry;
-  return a.id === b.id && a.digits === b.digits && a.letters === b.letters && a.complete === b.complete && !!a.matchedPlate === !!b.matchedPlate && a.spokenText === b.spokenText && a.correctionNote === b.correctionNote;
+  return a.id === b.id && a.digits === b.digits && a.letters === b.letters && a.complete === b.complete && !!a.matchedPlate === !!b.matchedPlate && a.spokenText === b.spokenText && a.correctionNote === b.correctionNote && a.duplicateDecision === b.duplicateDecision && a.duplicateOfId === b.duplicateOfId;
 });
 
 function MissingPlateParts({ entry }: { entry: PlateEntry }) {
@@ -873,5 +980,43 @@ function PreflightRow({ ok, label, bad, warn }: { ok: boolean; label: string; ba
         {!ok && (bad || warn) && <p className={`text-[10.5px] ${warn ? "text-warning" : "text-destructive"}`}>{warn ?? bad}</p>}
       </div>
     </div>
+  );
+}
+
+function DuplicatePromptSheet({ entry, original, match, onClose, onDecide }: { entry: PlateEntry | null; original: PlateEntry; match: DuplicateMatch; onClose: () => void; onDecide: (d: "same" | "different") => void }) {
+  if (!entry) return null;
+  const plate = `${entry.letters}-${entry.digits}`;
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <motion.div initial={{ y: 400 }} animate={{ y: 0 }} exit={{ y: 400 }} transition={{ type: "spring", stiffness: 320, damping: 32 }} className="w-full max-w-[440px] rounded-t-3xl bg-background p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary/15 text-primary"><HelpCircle className="h-5 w-5" /></div>
+            <h2 className="text-lg font-black">هل هي نفس السيارة؟</h2>
+          </div>
+          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="mb-3 rounded-xl bg-muted/40 p-3 text-center font-mono text-xl font-black tracking-[0.3em]" dir="ltr">{plate}</p>
+        <div className="mb-4 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-xl border border-border p-2.5">
+            <p className="text-[10px] text-muted-foreground">الفاصل الزمني</p>
+            <p className="text-sm font-black tabular-nums">{formatGap(match.gapSeconds)}</p>
+          </div>
+          <div className="rounded-xl border border-border p-2.5">
+            <p className="text-[10px] text-muted-foreground">المسافة</p>
+            <p className="text-sm font-black tabular-nums">{match.distanceMeters != null ? formatDistance(match.distanceMeters) : "—"}</p>
+          </div>
+        </div>
+        <p className="mb-3 text-[11px] leading-5 text-muted-foreground">تم رصد نفس اللوحة سابقاً في هذه الجلسة. لو نفس السيارة سنعتبرها تكراراً ولن تُحسب مرتين في التقرير.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => onDecide("different")} className="flex items-center justify-center gap-1.5 rounded-2xl border-2 border-border bg-background py-3 text-sm font-black">
+            <Car className="h-4 w-4" /> سيارة مختلفة
+          </button>
+          <button onClick={() => onDecide("same")} className="flex items-center justify-center gap-1.5 rounded-2xl bg-primary py-3 text-sm font-black text-primary-foreground">
+            <GitMerge className="h-4 w-4" /> نفس السيارة
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
