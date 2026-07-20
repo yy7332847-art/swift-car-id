@@ -14,7 +14,9 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiTranscribeRouteImport } from './routes/api/transcribe'
 import { Route as AuthenticatedUploadRouteImport } from './routes/_authenticated/upload'
+import { Route as AuthenticatedStatusRouteImport } from './routes/_authenticated/status'
 import { Route as AuthenticatedRecordRouteImport } from './routes/_authenticated/record'
+import { Route as AuthenticatedPackagesRouteImport } from './routes/_authenticated/packages'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
@@ -46,9 +48,19 @@ const AuthenticatedUploadRoute = AuthenticatedUploadRouteImport.update({
   path: '/upload',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedStatusRoute = AuthenticatedStatusRouteImport.update({
+  id: '/status',
+  path: '/status',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedRecordRoute = AuthenticatedRecordRouteImport.update({
   id: '/record',
   path: '/record',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPackagesRoute = AuthenticatedPackagesRouteImport.update({
+  id: '/packages',
+  path: '/packages',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedHomeRoute = AuthenticatedHomeRouteImport.update({
@@ -89,7 +101,9 @@ export interface FileRoutesByFullPath {
   '/account': typeof AuthenticatedAccountRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/home': typeof AuthenticatedHomeRoute
+  '/packages': typeof AuthenticatedPackagesRoute
   '/record': typeof AuthenticatedRecordRoute
+  '/status': typeof AuthenticatedStatusRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/sessions/$id': typeof AuthenticatedSessionsIdRoute
@@ -102,7 +116,9 @@ export interface FileRoutesByTo {
   '/account': typeof AuthenticatedAccountRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/home': typeof AuthenticatedHomeRoute
+  '/packages': typeof AuthenticatedPackagesRoute
   '/record': typeof AuthenticatedRecordRoute
+  '/status': typeof AuthenticatedStatusRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/sessions/$id': typeof AuthenticatedSessionsIdRoute
@@ -117,7 +133,9 @@ export interface FileRoutesById {
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
+  '/_authenticated/packages': typeof AuthenticatedPackagesRoute
   '/_authenticated/record': typeof AuthenticatedRecordRoute
+  '/_authenticated/status': typeof AuthenticatedStatusRoute
   '/_authenticated/upload': typeof AuthenticatedUploadRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/_authenticated/sessions/$id': typeof AuthenticatedSessionsIdRoute
@@ -132,7 +150,9 @@ export interface FileRouteTypes {
     | '/account'
     | '/admin'
     | '/home'
+    | '/packages'
     | '/record'
+    | '/status'
     | '/upload'
     | '/api/transcribe'
     | '/sessions/$id'
@@ -145,7 +165,9 @@ export interface FileRouteTypes {
     | '/account'
     | '/admin'
     | '/home'
+    | '/packages'
     | '/record'
+    | '/status'
     | '/upload'
     | '/api/transcribe'
     | '/sessions/$id'
@@ -159,7 +181,9 @@ export interface FileRouteTypes {
     | '/_authenticated/account'
     | '/_authenticated/admin'
     | '/_authenticated/home'
+    | '/_authenticated/packages'
     | '/_authenticated/record'
+    | '/_authenticated/status'
     | '/_authenticated/upload'
     | '/api/transcribe'
     | '/_authenticated/sessions/$id'
@@ -212,11 +236,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUploadRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/status': {
+      id: '/_authenticated/status'
+      path: '/status'
+      fullPath: '/status'
+      preLoaderRoute: typeof AuthenticatedStatusRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/record': {
       id: '/_authenticated/record'
       path: '/record'
       fullPath: '/record'
       preLoaderRoute: typeof AuthenticatedRecordRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/packages': {
+      id: '/_authenticated/packages'
+      path: '/packages'
+      fullPath: '/packages'
+      preLoaderRoute: typeof AuthenticatedPackagesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/home': {
@@ -268,7 +306,9 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountRoute: typeof AuthenticatedAccountRoute
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
+  AuthenticatedPackagesRoute: typeof AuthenticatedPackagesRoute
   AuthenticatedRecordRoute: typeof AuthenticatedRecordRoute
+  AuthenticatedStatusRoute: typeof AuthenticatedStatusRoute
   AuthenticatedUploadRoute: typeof AuthenticatedUploadRoute
   AuthenticatedSessionsIdRoute: typeof AuthenticatedSessionsIdRoute
   AuthenticatedSessionsIndexRoute: typeof AuthenticatedSessionsIndexRoute
@@ -278,7 +318,9 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountRoute: AuthenticatedAccountRoute,
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
+  AuthenticatedPackagesRoute: AuthenticatedPackagesRoute,
   AuthenticatedRecordRoute: AuthenticatedRecordRoute,
+  AuthenticatedStatusRoute: AuthenticatedStatusRoute,
   AuthenticatedUploadRoute: AuthenticatedUploadRoute,
   AuthenticatedSessionsIdRoute: AuthenticatedSessionsIdRoute,
   AuthenticatedSessionsIndexRoute: AuthenticatedSessionsIndexRoute,

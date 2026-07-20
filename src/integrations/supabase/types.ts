@@ -86,6 +86,51 @@ export type Database = {
           },
         ]
       }
+      packages: {
+        Row: {
+          created_at: string
+          description: string | null
+          duration_days: number
+          id: string
+          is_active: boolean
+          is_free: boolean
+          max_sessions_per_day: number | null
+          max_uploads: number | null
+          name: string
+          price_egp: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          duration_days: number
+          id?: string
+          is_active?: boolean
+          is_free?: boolean
+          max_sessions_per_day?: number | null
+          max_uploads?: number | null
+          name: string
+          price_egp?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          duration_days?: number
+          id?: string
+          is_active?: boolean
+          is_free?: boolean
+          max_sessions_per_day?: number | null
+          max_uploads?: number | null
+          name?: string
+          price_egp?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       plate_batches: {
         Row: {
           activated_at: string | null
@@ -190,6 +235,56 @@ export type Database = {
         }
         Relationships: []
       }
+      purchase_requests: {
+        Row: {
+          admin_note: string | null
+          contact: string | null
+          created_at: string
+          id: string
+          note: string | null
+          package_id: string
+          processed_at: string | null
+          processed_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_note?: string | null
+          contact?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          package_id: string
+          processed_at?: string | null
+          processed_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_note?: string | null
+          contact?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          package_id?: string
+          processed_at?: string | null
+          processed_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_requests_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recognition_sessions: {
         Row: {
           ended_at: string | null
@@ -238,7 +333,11 @@ export type Database = {
           expires_at: string | null
           id: string
           is_active: boolean
+          package_id: string | null
           starts_at: string | null
+          status: string
+          suspend_reason: string | null
+          suspended_at: string | null
           updated_at: string
           user_id: string
         }
@@ -247,7 +346,11 @@ export type Database = {
           expires_at?: string | null
           id?: string
           is_active?: boolean
+          package_id?: string | null
           starts_at?: string | null
+          status?: string
+          suspend_reason?: string | null
+          suspended_at?: string | null
           updated_at?: string
           user_id: string
         }
@@ -256,11 +359,23 @@ export type Database = {
           expires_at?: string | null
           id?: string
           is_active?: boolean
+          package_id?: string | null
           starts_at?: string | null
+          status?: string
+          suspend_reason?: string | null
+          suspended_at?: string | null
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "packages"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -291,6 +406,30 @@ export type Database = {
       activate_subscription: {
         Args: { _days: number; _user_id: string }
         Returns: undefined
+      }
+      admin_activate_package: {
+        Args: { _package_id: string; _user_id: string }
+        Returns: undefined
+      }
+      admin_process_request: {
+        Args: { _admin_note: string; _approve: boolean; _request_id: string }
+        Returns: undefined
+      }
+      admin_set_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: undefined
+      }
+      admin_suspend_user: {
+        Args: { _reason: string; _user_id: string }
+        Returns: undefined
+      }
+      admin_unsuspend_user: { Args: { _user_id: string }; Returns: undefined }
+      create_purchase_request: {
+        Args: { _contact: string; _note: string; _package_id: string }
+        Returns: string
       }
       deactivate_subscription: {
         Args: { _user_id: string }

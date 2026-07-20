@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getMySubscription, isAdmin } from "@/lib/subscription-check";
-import { LogOut, User as UserIcon, Mail, Clock, CheckCircle2, XCircle, ShieldCheck, FileText, Download, ListChecks, AlertTriangle, ChevronLeft } from "lucide-react";
+import { LogOut, User as UserIcon, Mail, Clock, CheckCircle2, XCircle, ShieldCheck, FileText, Download, ListChecks, AlertTriangle, ChevronLeft, Package as PackageIcon, Sparkles, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import { exportSessionExcel, exportSessionPDF, formatDuration, sessionDurationSec, type SessionRow } from "@/lib/report-export";
@@ -65,11 +65,16 @@ function AccountPage() {
       <div className="glass mb-4 rounded-2xl p-4">
         <p className="mb-3 text-xs font-bold text-muted-foreground">الاشتراك</p>
         <div className="flex items-center gap-3">
-          {sub?.active ? (
+          {sub?.status === "suspended" ? (
+            <>
+              <Ban className="h-6 w-6 text-destructive" />
+              <div><p className="font-bold text-destructive">حساب معطّل</p>{sub.suspendReason && <p className="text-xs text-muted-foreground">{sub.suspendReason}</p>}</div>
+            </>
+          ) : sub?.active ? (
             <>
               <CheckCircle2 className="h-6 w-6 text-success" />
               <div>
-                <p className="font-bold text-success">مفعّل</p>
+                <p className="font-bold text-success">{sub.packageName ?? "مفعّل"}</p>
                 {sub.daysLeft !== null && <p className="text-xs text-muted-foreground">متبقٍ {sub.daysLeft} يوم</p>}
               </div>
             </>
@@ -77,13 +82,28 @@ function AccountPage() {
             <>
               <XCircle className="h-6 w-6 text-destructive" />
               <div>
-                <p className="font-bold text-destructive">غير مفعّل</p>
-                <p className="text-xs text-muted-foreground">تواصل مع الإدارة للتفعيل</p>
+                <p className="font-bold text-destructive">{sub?.status === "expired" ? "الباقة منتهية" : "غير مفعّل"}</p>
+                <p className="text-xs text-muted-foreground">اطلب باقة للبدء</p>
               </div>
             </>
           )}
         </div>
       </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <Link to="/packages" className="glass flex items-center justify-center gap-2 rounded-2xl p-3 text-xs font-black">
+          <PackageIcon className="h-4 w-4 text-primary" /> الباقات
+        </Link>
+        <Link to="/sessions" className="glass flex items-center justify-center gap-2 rounded-2xl p-3 text-xs font-black">
+          <ListChecks className="h-4 w-4 text-primary" /> جلساتي
+        </Link>
+        {admin && (
+          <Link to="/admin" className="glass col-span-2 flex items-center justify-center gap-2 rounded-2xl p-3 text-xs font-black">
+            <ShieldCheck className="h-4 w-4 text-primary" /> لوحة الإدارة
+          </Link>
+        )}
+      </div>
+
 
       <div className="glass mb-4 rounded-2xl p-4 text-sm">
         <InfoRow icon={Mail} label="البريد" value={profile?.email ?? ""} />
