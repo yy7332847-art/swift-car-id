@@ -39,15 +39,17 @@ function AdminPage() {
         <h1 className="text-xl font-black">لوحة الإدارة</h1>
       </div>
 
-      <div className="mb-4 grid grid-cols-3 gap-2 rounded-2xl bg-muted/50 p-1">
+      <div className="mb-4 grid grid-cols-4 gap-2 rounded-2xl bg-muted/50 p-1">
         <TabBtn active={tab === "users"} onClick={() => setTab("users")} icon={Users} label="المستخدمون" />
         <TabBtn active={tab === "packages"} onClick={() => setTab("packages")} icon={PackageIcon} label="الباقات" />
         <TabBtn active={tab === "requests"} onClick={() => setTab("requests")} icon={Inbox} label="الطلبات" />
+        <TabBtn active={tab === "audit"} onClick={() => setTab("audit")} icon={History} label="السجل" />
       </div>
 
       {tab === "users" && <UsersTab />}
       {tab === "packages" && <PackagesTab />}
       {tab === "requests" && <RequestsTab />}
+      {tab === "audit" && <AuditTab />}
     </div>
   );
 }
@@ -408,6 +410,72 @@ function RequestsTab() {
       <div className="pt-2 text-center">
         <Link to="/admin" className="text-[10px] text-muted-foreground">تحديث</Link>
       </div>
+    </div>
+  );
+}
+
+// ------------------- AUDIT LOG -------------------
+interface AuditRow {
+  id: string; admin_id: string; target_user_id: string | null;
+  action: string; details: Record<string, unknown>; created_at: string;
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  activate_package: "تفعيل باقة",
+  suspend_user: "تعطيل مستخدم",
+  unsuspend_user: "إعادة تفعيل",
+  approve_request: "قبول طلب",
+  reject_request: "رفض طلب",
+};
+
+function AuditTab() {
+  const { data: rows } = useQuery({
+    queryKey: ["admin-audit"],
+    queryFn: async (): Promise<AuditRow[]> => {
+      const { data } = await supabase
+        .from("admin_audit_log" as never)
+        .select("id, admin_id, target_user_id, action, details, created_at")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      return (data ?? []) as unknown as AuditRow[];
+    },
+  });
+  const { data: profiles } = useQuery({
+    queryKey: ["profiles-names"],
+    queryFn: async () => (await supabase.from("profiles").select("id, full_name, email")).data ?? [],
+  });
+  const nameMap = new Map((profiles ?? []).map((p) => [p.id, p.full_name || p.email || p.id.slice(0, 8)]));
+
+  if (!rows) return <p className="text-center text-xs text-muted-foreground">جاري التحميل...</p>;
+  if (rows.length === 0) return <p className="glass rounded-2xl p-6 text-center text-xs text-muted-foreground">لا توجد سجلات</p>;
+
+  return (
+    <div className="space-y-2">
+      {rows.map((r) => {
+        const label = ACTION_LABELS[r.action] ?? r.action;
+        const tone = r.action.startsWith("suspend") || r.action === "reject_request"
+          ? "bg-destructive/15 text-destructive"
+          : r.action === "approve_request" || r.action === "activate_package"
+            ? "bg-success/15 text-success"
+            : "bg-primary/15 text-primary";
+        return (
+          <div key={r.id} className="glass rounded-xl p-3">
+            <div className="flex items-start gap-2">
+              <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${tone}`}>{label}</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px]">
+                  <span className="text-muted-foreground">من:</span> <span className="font-bold">{nameMap.get(r.admin_id) ?? "-"}</span>
+                  {r.target_user_id && <> <span className="text-muted-foreground">← إلى:</span> <span className="font-bold">{nameMap.get(r.target_user_id) ?? "-"}</span></>}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">{new Date(r.created_at).toLocaleString("ar-EG")}</p>
+                {Object.keys(r.details ?? {}).length > 0 && (
+                  <pre className="mt-1 overflow-x-auto rounded-lg bg-muted/50 p-2 text-[9.5px]" dir="ltr">{JSON.stringify(r.details, null, 1)}</pre>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
