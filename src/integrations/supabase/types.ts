@@ -44,6 +44,7 @@ export type Database = {
       detected_plates: {
         Row: {
           accuracy: number | null
+          client_id: string | null
           confidence: number | null
           correction_note: string | null
           detected_at: string
@@ -66,6 +67,7 @@ export type Database = {
         }
         Insert: {
           accuracy?: number | null
+          client_id?: string | null
           confidence?: number | null
           correction_note?: string | null
           detected_at?: string
@@ -88,6 +90,7 @@ export type Database = {
         }
         Update: {
           accuracy?: number | null
+          client_id?: string | null
           confidence?: number | null
           correction_note?: string | null
           detected_at?: string
@@ -333,6 +336,7 @@ export type Database = {
       }
       recognition_sessions: {
         Row: {
+          client_id: string | null
           ended_at: string | null
           id: string
           notes: string | null
@@ -348,6 +352,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          client_id?: string | null
           ended_at?: string | null
           id?: string
           notes?: string | null
@@ -363,6 +368,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          client_id?: string | null
           ended_at?: string | null
           id?: string
           notes?: string | null
