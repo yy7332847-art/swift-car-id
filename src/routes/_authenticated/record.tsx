@@ -576,6 +576,8 @@ function RecordPage() {
         <div className="rounded-xl border border-success/25 bg-success/5 p-2"><p className="text-sm font-black tabular-nums text-success">{reliability?.matchRate ? `${Math.round(reliability.matchRate * 100)}%` : "—"}</p><p className="text-[9.5px] text-muted-foreground">معدل التطابق</p></div>
       </div>
 
+      {recording && perfStats.count > 0 && <PerfPanel stats={perfStats} />}
+
       {!recording && savedSessionId && entries.length > 0 && <Link to="/sessions/$id" params={{ id: savedSessionId }} className="mb-3 block rounded-2xl bg-primary p-3 text-center text-sm font-bold text-primary-foreground">عرض تقرير الجلسة</Link>}
       {!recording && reviewOpen && <SessionPreview entries={entries} transcript={transcript} elapsed={elapsed} saving={saving} onSave={saveReviewedSession} onDiscard={discardDraft} onDownload={exportCurrentPDF} />}
 
