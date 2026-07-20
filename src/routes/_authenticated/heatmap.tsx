@@ -213,7 +213,6 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
       p.lng,
       p.status === "matched" ? 1 : p.status === "unknown" ? 0.7 : 0.4,
     ]);
-    // @ts-expect-error leaflet.heat augments L
     const layer = L.heatLayer(heatData, {
       radius: intensity,
       blur: Math.round(intensity * 0.7),
