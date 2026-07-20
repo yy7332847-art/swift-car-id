@@ -38,6 +38,28 @@ const state: SyncState = {
 const listeners = new Set<SyncListener>();
 let started = false;
 let intervalId: ReturnType<typeof setInterval> | null = null;
+let scheduledTimer: ReturnType<typeof setTimeout> | null = null;
+
+const MIN_DELAY = 5_000;
+const IDLE_DELAY = 60_000;
+const MAX_DELAY = 15 * 60_000;
+
+/** Reschedule the next drain based on the earliest queued next_retry_at. */
+async function scheduleNextRun() {
+  if (typeof window === "undefined") return;
+  if (scheduledTimer) { clearTimeout(scheduledTimer); scheduledTimer = null; }
+  if (!state.online) return;
+  let delay = IDLE_DELAY;
+  try {
+    const earliest = await earliestNextRetryAt();
+    if (earliest !== null) {
+      const now = Date.now();
+      delay = Math.max(MIN_DELAY, Math.min(MAX_DELAY, earliest - now));
+      if (earliest <= now) delay = MIN_DELAY;
+    }
+  } catch { /* ignore */ }
+  scheduledTimer = setTimeout(() => { if (state.online && !state.syncing) void syncNow(); }, delay);
+}
 
 function notify() {
   for (const l of listeners) l({ ...state });
