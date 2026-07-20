@@ -311,9 +311,17 @@ function RecordPage() {
           growableRef.current.set(key, { entryId: entry.id, digits: enriched.digits });
         }
       }
+      matchMs = performance.now() - tMatch - parseMs > 0 ? performance.now() - (t0 + sttMs + parseMs) : 0;
     } catch (err) {
       console.error(err);
     } finally {
+      const totalMs = performance.now() - t0;
+      const sample: PerfSample = { chunkGapMs: chunkGap, sttMs, parseMs, matchMs: Math.max(0, totalMs - sttMs - parseMs), totalMs, textLen, at: Date.now() };
+      const buf = perfBufferRef.current;
+      buf.push(sample);
+      if (buf.length > PERF_BUFFER_SIZE) buf.shift();
+      setPerfStats(computePerfStats(buf, pendingRef.current - 1));
+      if (import.meta.env.DEV) console.debug("[perf]", { gap: `${sample.chunkGapMs.toFixed(0)}ms`, stt: `${sttMs.toFixed(0)}ms`, parse: `${parseMs.toFixed(0)}ms`, total: `${totalMs.toFixed(0)}ms`, textLen, queue: pendingRef.current - 1 });
       pendingRef.current--;
       if (pendingRef.current === 0) setProcessing(false);
     }
