@@ -1,9 +1,10 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { Home, Upload, Mic, ListChecks, User, ShieldCheck, Moon, Sun, ScanLine, ChevronRight, RotateCw } from "lucide-react";
+import { Home, Upload, Mic, ListChecks, User, ShieldCheck, Moon, Sun, ScanLine, ChevronRight, RotateCw, Settings as SettingsIcon } from "lucide-react";
 
 import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTheme } from "@/lib/theme";
+import { ExpiryBanner } from "@/components/ExpiryBanner";
 
 interface Tab {
   to: string;
@@ -27,6 +28,7 @@ const TITLES: Record<string, string> = {
   "/sessions": "الجلسات",
   "/account": "حسابي",
   "/admin": "لوحة الإدارة",
+  "/settings": "الإعدادات",
 };
 
 export function MobileShell({ children }: { children: ReactNode }) {
@@ -114,6 +116,7 @@ export function MobileShell({ children }: { children: ReactNode }) {
             <Moon className={`absolute h-4 w-4 transition-all duration-500 ${theme === "light" ? "rotate-0 scale-100 opacity-100" : "rotate-90 scale-0 opacity-0"}`} />
           </button>
         </div>
+        <ExpiryBanner />
       </header>
 
       <main className="flex-1 overflow-y-auto pb-28">{children}</main>

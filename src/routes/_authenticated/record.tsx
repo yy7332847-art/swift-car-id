@@ -361,7 +361,7 @@ function RecordPage() {
         setGeoOn(true);
         const prev = rawPathRef.current[rawPathRef.current.length - 1] ?? null;
         const speed = pt.spd ?? (prev && pt.t && prev.t ? (Math.hypot(pt.lat - prev.lat, pt.lng - prev.lng) * 111000) / Math.max(0.1, (pt.t - prev.t) / 1000) : 0);
-        if (!shouldAcceptPoint(prev, pt, { speed, bufferSize: rawPathRef.current.length })) return;
+        if (!shouldAcceptPoint(prev, pt, { speed, bufferSize: rawPathRef.current.length, config: loadSettings().batterySaver })) return;
         rawPathRef.current = [...rawPathRef.current, pt];
         const smoothed = smoothPath(rawPathRef.current);
         pathRef.current = smoothed;
