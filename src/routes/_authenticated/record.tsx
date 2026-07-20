@@ -151,6 +151,7 @@ function RecordPage() {
   const [preflight, setPreflight] = useState<GeoPreflight | null>(null);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [preflightLoading, setPreflightLoading] = useState(false);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{ entryId: string; original: PlateEntry; match: DuplicateMatch } | null>(null);
 
   const currentPosRef = useRef<GeoPoint | null>(null);
   const geoWatchRef = useRef<WatchHandle | null>(null);
