@@ -225,11 +225,13 @@ function RecordPage() {
       setElapsed(0);
 
       recorderRef.current = await startRecorder({
-        chunkSeconds: 1.8,
+        chunkSeconds: 1.4,
+        overlapSeconds: 0.6,
         targetSampleRate: 16000,
         onLevel: setLevel,
         onChunk: (wav) => void processChunk(wav),
       });
+
       setRecording(true);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "تعذر بدء التسجيل");
@@ -312,11 +314,13 @@ function RecordPage() {
         )}
       </div>
 
-      {transcript && recording && (
-        <div className="mb-3 rounded-2xl bg-muted/50 p-3 text-xs text-muted-foreground">
-          <span className="font-bold">آخر ما سُمع: </span>
-          {transcript.slice(-150)}
-        </div>
+      {recording && (
+        <LiveStatusBar
+          processing={processing}
+          transcript={transcript}
+          lastCapture={lastCapture}
+          level={level}
+        />
       )}
 
       <div className="mb-3 grid grid-cols-3 gap-2 text-center">
@@ -324,6 +328,7 @@ function RecordPage() {
         <div className="glass rounded-xl p-2 border border-success/40"><p className="text-lg font-black text-success">{entries.filter((e) => e.matchedPlate).length}</p><p className="text-[10px] text-muted-foreground">مطابقة</p></div>
         <div className="glass rounded-xl p-2 border border-warning/40"><p className="text-lg font-black text-warning">{entries.filter((e) => !e.complete).length}</p><p className="text-[10px] text-muted-foreground">غير مكتملة</p></div>
       </div>
+
 
       {!recording && sessionId && entries.length > 0 && (
         <Link to="/sessions/$id" params={{ id: sessionId }} className="mb-3 block rounded-2xl bg-primary p-3 text-center text-sm font-bold text-primary-foreground">
