@@ -103,6 +103,7 @@ function AuthPage() {
           </p>
         )}
       </motion.div>
+      {celebrate && <SignupCelebration userName={fullName} onDone={() => { setCelebrate(false); navigate({ to: "/home" }); }} />}
     </div>
   );
 }
