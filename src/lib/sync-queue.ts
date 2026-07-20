@@ -214,34 +214,41 @@ export async function refreshPlatesCache(): Promise<{ count: number }> {
   return { count: all.length };
 }
 
-/** Start listeners + periodic retry. Safe to call multiple times. */
+/** Start listeners + adaptive retry scheduling. Safe to call multiple times. */
 export function startSyncEngine() {
   if (started || typeof window === "undefined") return;
   started = true;
 
-  const online = () => {
+  const online = async () => {
     state.online = true;
     notify();
+    // Fresh connectivity — clear backoff so pending items retry immediately.
+    try { await resetBackoff(); } catch { /* ignore */ }
     void syncNow();
   };
   const offline = () => {
     state.online = false;
+    if (scheduledTimer) { clearTimeout(scheduledTimer); scheduledTimer = null; }
     notify();
   };
   window.addEventListener("online", online);
   window.addEventListener("offline", offline);
 
+  // Safety net: even if scheduled timer is somehow missed, poll every 5 min.
   intervalId = setInterval(() => {
     if (state.online && !state.syncing) void syncNow();
-  }, 30_000);
+  }, 5 * 60_000);
 
   void refreshCounts().then(() => {
     if (state.online) void syncNow();
+    else void scheduleNextRun();
   });
 }
 
 export function stopSyncEngine() {
   if (intervalId) clearInterval(intervalId);
+  if (scheduledTimer) clearTimeout(scheduledTimer);
   intervalId = null;
+  scheduledTimer = null;
   started = false;
 }
