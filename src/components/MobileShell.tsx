@@ -1,5 +1,6 @@
-import { Link, useRouterState } from "@tanstack/react-router";
-import { Home, Upload, Mic, ListChecks, User, ShieldCheck, Moon, Sun, ScanLine } from "lucide-react";
+import { Link, useRouter, useRouterState } from "@tanstack/react-router";
+import { Home, Upload, Mic, ListChecks, User, ShieldCheck, Moon, Sun, ScanLine, ChevronRight, RotateCw } from "lucide-react";
+
 import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTheme } from "@/lib/theme";
@@ -30,6 +31,7 @@ const TITLES: Record<string, string> = {
 
 export function MobileShell({ children }: { children: ReactNode }) {
   const { location } = useRouterState();
+  const router = useRouter();
   const [isAdmin, setIsAdmin] = useState(false);
   const [, , toggleTheme] = useTheme();
   const [theme, setThemeLocal] = useState<"dark" | "light">("dark");
@@ -52,6 +54,7 @@ export function MobileShell({ children }: { children: ReactNode }) {
     : baseTabs;
 
   const currentTitle = Object.entries(TITLES).find(([p]) => location.pathname.startsWith(p))?.[1] ?? "تشييك اللوحات";
+  const canGoBack = location.pathname !== "/home" && location.pathname !== "/";
 
   const handleToggle = () => {
     toggleTheme();
@@ -60,22 +63,59 @@ export function MobileShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col">
-      <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-border/60 bg-background/70 px-4 py-3 backdrop-blur-xl">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-md">
-          <ScanLine className="h-5 w-5" strokeWidth={2.5} />
+      <header className="sticky top-0 z-40 border-b border-border/50 bg-background/60 backdrop-blur-2xl">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-70"
+          style={{
+            background:
+              "linear-gradient(180deg, color-mix(in oklch, var(--color-primary) 10%, transparent), transparent 70%)",
+          }}
+        />
+        <div className="relative flex items-center gap-2.5 px-3.5 py-3">
+          <Link
+            to="/home"
+            className="group flex items-center gap-2.5 min-w-0 flex-1"
+            aria-label="الرئيسية"
+          >
+            <div className="relative grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-primary to-accent text-primary-foreground shadow-lg shadow-primary/25 transition-transform group-active:scale-95">
+              <ScanLine className="h-5 w-5" strokeWidth={2.5} />
+              <span className="absolute -inset-0.5 rounded-2xl opacity-0 blur-md transition-opacity group-hover:opacity-40" style={{ background: "var(--color-primary)" }} />
+            </div>
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="truncate text-[13px] font-black tracking-tight">تشييك اللوحات</p>
+              <p className="truncate text-[10.5px] text-muted-foreground">{currentTitle}</p>
+            </div>
+          </Link>
+
+          {canGoBack && (
+            <button
+              onClick={() => router.history.back()}
+              aria-label="رجوع"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border/60 bg-card/70 text-foreground/80 transition-all hover:bg-muted active:scale-95"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          )}
+
+          <button
+            onClick={() => router.invalidate()}
+            aria-label="تحديث"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border/60 bg-card/70 text-foreground/80 transition-all hover:bg-muted active:scale-95 active:rotate-180"
+          >
+            <RotateCw className="h-4 w-4" />
+          </button>
+
+          <button
+            onClick={handleToggle}
+            aria-label="تبديل الوضع"
+            className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl border border-primary/30 bg-gradient-to-br from-primary/15 to-accent/15 text-primary transition-all hover:from-primary/25 hover:to-accent/25 active:scale-95"
+          >
+            <Sun className={`absolute h-4 w-4 transition-all duration-500 ${theme === "dark" ? "rotate-0 scale-100 opacity-100" : "-rotate-90 scale-0 opacity-0"}`} />
+            <Moon className={`absolute h-4 w-4 transition-all duration-500 ${theme === "light" ? "rotate-0 scale-100 opacity-100" : "rotate-90 scale-0 opacity-0"}`} />
+          </button>
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-black leading-tight">تشييك اللوحات</p>
-          <p className="truncate text-[10px] text-muted-foreground">{currentTitle}</p>
-        </div>
-        <button
-          onClick={handleToggle}
-          aria-label="تبديل الوضع"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-muted/70 text-foreground transition-colors hover:bg-muted"
-        >
-          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </button>
       </header>
+
       <main className="flex-1 overflow-y-auto pb-28">{children}</main>
       <nav className="fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-[420px] -translate-x-1/2 rounded-2xl glass px-2 py-2 shadow-2xl">
         <div className="flex items-end justify-around">
