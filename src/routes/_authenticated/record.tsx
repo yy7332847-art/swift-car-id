@@ -9,7 +9,7 @@ import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
-import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, type GeoPoint, type WatchHandle, type PermissionState } from "@/lib/geo";
+import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, runGeoPreflight, isAndroid, type GeoPoint, type WatchHandle, type PermissionState, type GeoPreflight } from "@/lib/geo";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
