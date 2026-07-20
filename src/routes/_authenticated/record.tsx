@@ -129,6 +129,9 @@ function RecordPage() {
   const [geoError, setGeoError] = useState<string | null>(null);
   const [geoPerm, setGeoPerm] = useState<PermissionState>("prompt");
   const [path, setPath] = useState<GeoPoint[]>([]);
+  const [preflight, setPreflight] = useState<GeoPreflight | null>(null);
+  const [preflightOpen, setPreflightOpen] = useState(false);
+  const [preflightLoading, setPreflightLoading] = useState(false);
 
   const currentPosRef = useRef<GeoPoint | null>(null);
   const geoWatchRef = useRef<WatchHandle | null>(null);
