@@ -5,9 +5,10 @@ import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
+
 
 export const Route = createFileRoute("/_authenticated/record")({
   component: RecordPage,
@@ -64,6 +65,9 @@ function RecordPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  // Transient "just captured" state — drives the live status pill.
+  const [lastCapture, setLastCapture] = useState<{ raw: string; complete: boolean; matched: boolean; at: number } | null>(null);
+
 
   const recorderRef = useRef<RecorderHandle | null>(null);
   const pendingRef = useRef(0);
@@ -138,6 +142,7 @@ function RecordPage() {
             complete: p.complete, confidence: p.confidence, suspectPart: p.suspectPart, correctionNote: p.correctionNote,
             matchedPlate: isMatched ? { plate_raw: match!.plate_raw, bank: match!.bank, car_type: match!.car_type, chassis: match!.chassis, plate_date: match!.plate_date } : undefined,
           } : e));
+          setLastCapture({ raw: p.raw, complete: p.complete, matched: isMatched, at: Date.now() });
           if (p.complete) {
             growableRef.current.delete(key);
             finalizedRef.current.add(key);
@@ -147,6 +152,7 @@ function RecordPage() {
             growableRef.current.set(key, { ...existing, digits: p.digits });
           }
           continue;
+
         }
 
         if (finalizedRef.current.has(key)) continue;
@@ -175,6 +181,7 @@ function RecordPage() {
           matchedPlate: isMatched ? { plate_raw: match!.plate_raw, bank: match!.bank, car_type: match!.car_type, chassis: match!.chassis, plate_date: match!.plate_date } : undefined,
         };
         setEntries((prev) => [entry, ...prev].slice(0, 500));
+        setLastCapture({ raw: p.raw, complete: p.complete, matched: isMatched, at: now });
         if (p.complete) {
           finalizedRef.current.add(key);
           if (isMatched) {
@@ -185,6 +192,7 @@ function RecordPage() {
           growableRef.current.set(key, { entryId, dbId: inserted.id, digits: p.digits });
         }
       }
+
     } catch (err) {
       console.error(err);
     } finally {
@@ -217,11 +225,13 @@ function RecordPage() {
       setElapsed(0);
 
       recorderRef.current = await startRecorder({
-        chunkSeconds: 1.8,
+        chunkSeconds: 1.4,
+        overlapSeconds: 0.6,
         targetSampleRate: 16000,
         onLevel: setLevel,
         onChunk: (wav) => void processChunk(wav),
       });
+
       setRecording(true);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "تعذر بدء التسجيل");
@@ -304,11 +314,13 @@ function RecordPage() {
         )}
       </div>
 
-      {transcript && recording && (
-        <div className="mb-3 rounded-2xl bg-muted/50 p-3 text-xs text-muted-foreground">
-          <span className="font-bold">آخر ما سُمع: </span>
-          {transcript.slice(-150)}
-        </div>
+      {recording && (
+        <LiveStatusBar
+          processing={processing}
+          transcript={transcript}
+          lastCapture={lastCapture}
+          level={level}
+        />
       )}
 
       <div className="mb-3 grid grid-cols-3 gap-2 text-center">
@@ -316,6 +328,7 @@ function RecordPage() {
         <div className="glass rounded-xl p-2 border border-success/40"><p className="text-lg font-black text-success">{entries.filter((e) => e.matchedPlate).length}</p><p className="text-[10px] text-muted-foreground">مطابقة</p></div>
         <div className="glass rounded-xl p-2 border border-warning/40"><p className="text-lg font-black text-warning">{entries.filter((e) => !e.complete).length}</p><p className="text-[10px] text-muted-foreground">غير مكتملة</p></div>
       </div>
+
 
       {!recording && sessionId && entries.length > 0 && (
         <Link to="/sessions/$id" params={{ id: sessionId }} className="mb-3 block rounded-2xl bg-primary p-3 text-center text-sm font-bold text-primary-foreground">
@@ -484,6 +497,73 @@ function Row({ label, value }: { label: string; value: string | null }) {
     </div>
   );
 }
+
+function LiveStatusBar({
+  processing, transcript, lastCapture, level,
+}: {
+  processing: boolean;
+  transcript: string;
+  lastCapture: { raw: string; complete: boolean; matched: boolean; at: number } | null;
+  level: number;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 300);
+    return () => clearInterval(iv);
+  }, []);
+  const recent = lastCapture && now - lastCapture.at < 2500 ? lastCapture : null;
+  const state: "captured" | "transcribing" | "listening" =
+    recent ? "captured" : processing ? "transcribing" : "listening";
+
+  const tone =
+    state === "captured"
+      ? recent!.matched
+        ? { pill: "bg-success/20 text-success border-success/40", bar: "bg-success" }
+        : recent!.complete
+          ? { pill: "bg-primary/20 text-primary border-primary/40", bar: "bg-primary" }
+          : { pill: "bg-warning/20 text-warning border-warning/40", bar: "bg-warning" }
+      : state === "transcribing"
+        ? { pill: "bg-primary/15 text-primary border-primary/30", bar: "bg-primary" }
+        : { pill: "bg-muted text-muted-foreground border-border", bar: "bg-primary/60" };
+
+  const label =
+    state === "captured"
+      ? recent!.matched
+        ? `تطابق: ${recent!.raw}`
+        : recent!.complete
+          ? `التقطت: ${recent!.raw}`
+          : `ناقصة: ${recent!.raw}`
+      : state === "transcribing"
+        ? "جاري التعرّف على الصوت..."
+        : "الاستماع — تحدّث بأرقام اللوحة";
+
+  const Icon = state === "captured" ? (recent!.matched ? CheckCircle2 : recent!.complete ? Sparkles : AlertTriangle) : state === "transcribing" ? Loader2 : Radio;
+  const barPct = state === "transcribing" ? undefined : Math.min(100, Math.round(level * 350));
+
+  return (
+    <div className={`mb-3 overflow-hidden rounded-2xl border p-2.5 ${tone.pill.replace("text-", "border-").split(" ")[2] ?? ""}`}>
+      <div className="flex items-center gap-2">
+        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${tone.pill}`}>
+          <Icon className={`h-3.5 w-3.5 ${state === "transcribing" ? "animate-spin" : ""}`} />
+          {label}
+        </span>
+        {transcript && (
+          <span className="ml-auto truncate text-[10.5px] text-muted-foreground" dir="rtl">
+            {transcript.slice(-80)}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/60">
+        {state === "transcribing" ? (
+          <motion.div className={`h-full ${tone.bar}`} initial={{ x: "-40%", width: "40%" }} animate={{ x: "100%" }} transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }} />
+        ) : (
+          <motion.div className={`h-full ${tone.bar}`} animate={{ width: `${barPct}%` }} transition={{ duration: 0.15 }} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 function formatTime(s: number): string {
   const m = Math.floor(s / 60);
