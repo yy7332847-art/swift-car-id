@@ -88,7 +88,7 @@ async function loadBgGeoloc(): Promise<BackgroundGeoloc | null> {
   bgLoaded = true;
   try {
     if (!isNative()) return null;
-    const mod = (await import(/* @vite-ignore */ "@capacitor-community/background-geolocation")) as { BackgroundGeolocation: BackgroundGeoloc };
+    const mod = (await import(/* @vite-ignore */ ("@capacitor-community/background-geolocation" as string))) as { BackgroundGeolocation: BackgroundGeoloc };
     bgGeoloc = mod.BackgroundGeolocation;
     return bgGeoloc;
   } catch {
