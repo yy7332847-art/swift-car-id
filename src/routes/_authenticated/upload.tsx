@@ -135,6 +135,7 @@ function UploadPage() {
       if (batchErr) throw batchErr;
 
       const CHUNK = 1000;
+      let insertedCount = 0;
       setProgress({ done: 0, total: validRows.length });
       for (let i = 0; i < validRows.length; i += CHUNK) {
         const slice = validRows.slice(i, i + CHUNK).map((r) => {
@@ -149,12 +150,19 @@ function UploadPage() {
           for (const r of validRows.slice(i, i + CHUNK)) failed.push({ rowNumber: r.rowNumber, plateRaw: r.plate_raw, reason: error.message });
           continue;
         }
+        insertedCount += slice.length;
         setProgress({ done: Math.min(i + CHUNK, validRows.length), total: validRows.length });
+      }
+      if (insertedCount === 0) {
+        await supabase.from("plate_batches").delete().eq("id", batch.id);
+        setUploadReport({ success: 0, failed, fileName: file.name });
+        throw new Error("لم يتم قبول أي لوحة من الملف");
       }
       // Auto-activate the new batch
       await supabase.rpc("set_active_plate_batch", { _batch_id: batch.id });
-      setUploadReport({ success: validRows.length - failed.filter((f) => f.reason.includes("duplicate") || f.reason).length + failed.filter((f) => f.reason.startsWith("تنسيق")).length, failed, fileName: file.name });
-      toast.success(`تم رفع ${validRows.length.toLocaleString("ar-EG")} لوحة وتفعيل النسخة الجديدة`);
+      if (insertedCount !== validRows.length) await supabase.from("plate_batches").update({ plates_count: insertedCount }).eq("id", batch.id);
+      setUploadReport({ success: insertedCount, failed, fileName: file.name });
+      toast.success(`تم رفع ${insertedCount.toLocaleString("ar-EG")} لوحة وتفعيل النسخة الجديدة`);
       qc.invalidateQueries({ queryKey: ["batches"] });
       qc.invalidateQueries({ queryKey: ["home-stats"] });
       qc.invalidateQueries({ queryKey: ["plates-index"] });
