@@ -165,6 +165,7 @@ function pushFound(found: DetectedPlate[], plate: Omit<DetectedPlate, "raw" | "n
   // Saudi plates need 3 official letters. Do not turn normal Arabic words
   // like "انا" or "السلام" into plate letters.
   if (letters.length !== 3 || digits.length < 3) return;
+  if (!letters.split("").every((c) => PLATE_LETTERS.has(c))) return;
   const normalized = normalizePlate(letters + digits);
   if (found.some((f) => f.normalized === normalized)) return;
   const complete = letters.length === 3 && digits.length === 4;
@@ -180,7 +181,7 @@ export function extractPlates(text: string): DetectedPlate[] {
     while (j < words.length && letters.length < 3) {
       const raw = stripWa(words[j]);
       if (/^[\u0621-\u064A]+$/.test(raw)) {
-        if (LETTER_NAMES[raw]) { letters += LETTER_NAMES[raw]; j++; continue; }
+        if (LETTER_NAMES[raw] && PLATE_LETTERS.has(LETTER_NAMES[raw])) { letters += LETTER_NAMES[raw]; j++; continue; }
         const chars = raw.split("").map((c) => LETTER_MAP[c] ?? c);
         // Accept a bare one-letter token only. Compact words are accepted below
         // only when directly attached to digits (e.g. "ابج1234").
