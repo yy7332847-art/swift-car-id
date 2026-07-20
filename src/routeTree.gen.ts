@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiTranscribeRouteImport } from './routes/api/transcribe'
 import { Route as AuthenticatedUploadRouteImport } from './routes/_authenticated/upload'
+import { Route as AuthenticatedRecordRouteImport } from './routes/_authenticated/record'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
@@ -43,6 +44,11 @@ const ApiTranscribeRoute = ApiTranscribeRouteImport.update({
 const AuthenticatedUploadRoute = AuthenticatedUploadRouteImport.update({
   id: '/upload',
   path: '/upload',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedRecordRoute = AuthenticatedRecordRouteImport.update({
+  id: '/record',
+  path: '/record',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedHomeRoute = AuthenticatedHomeRouteImport.update({
@@ -83,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/account': typeof AuthenticatedAccountRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/home': typeof AuthenticatedHomeRoute
+  '/record': typeof AuthenticatedRecordRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/sessions/$id': typeof AuthenticatedSessionsIdRoute
@@ -95,6 +102,7 @@ export interface FileRoutesByTo {
   '/account': typeof AuthenticatedAccountRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/home': typeof AuthenticatedHomeRoute
+  '/record': typeof AuthenticatedRecordRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/sessions/$id': typeof AuthenticatedSessionsIdRoute
@@ -109,6 +117,7 @@ export interface FileRoutesById {
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
+  '/_authenticated/record': typeof AuthenticatedRecordRoute
   '/_authenticated/upload': typeof AuthenticatedUploadRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/_authenticated/sessions/$id': typeof AuthenticatedSessionsIdRoute
@@ -123,6 +132,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/admin'
     | '/home'
+    | '/record'
     | '/upload'
     | '/api/transcribe'
     | '/sessions/$id'
@@ -135,6 +145,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/admin'
     | '/home'
+    | '/record'
     | '/upload'
     | '/api/transcribe'
     | '/sessions/$id'
@@ -148,6 +159,7 @@ export interface FileRouteTypes {
     | '/_authenticated/account'
     | '/_authenticated/admin'
     | '/_authenticated/home'
+    | '/_authenticated/record'
     | '/_authenticated/upload'
     | '/api/transcribe'
     | '/_authenticated/sessions/$id'
@@ -200,6 +212,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUploadRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/record': {
+      id: '/_authenticated/record'
+      path: '/record'
+      fullPath: '/record'
+      preLoaderRoute: typeof AuthenticatedRecordRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/home': {
       id: '/_authenticated/home'
       path: '/home'
@@ -249,6 +268,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountRoute: typeof AuthenticatedAccountRoute
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
+  AuthenticatedRecordRoute: typeof AuthenticatedRecordRoute
   AuthenticatedUploadRoute: typeof AuthenticatedUploadRoute
   AuthenticatedSessionsIdRoute: typeof AuthenticatedSessionsIdRoute
   AuthenticatedSessionsIndexRoute: typeof AuthenticatedSessionsIndexRoute
@@ -258,6 +278,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountRoute: AuthenticatedAccountRoute,
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
+  AuthenticatedRecordRoute: AuthenticatedRecordRoute,
   AuthenticatedUploadRoute: AuthenticatedUploadRoute,
   AuthenticatedSessionsIdRoute: AuthenticatedSessionsIdRoute,
   AuthenticatedSessionsIndexRoute: AuthenticatedSessionsIndexRoute,

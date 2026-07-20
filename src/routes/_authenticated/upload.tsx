@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, FileSpreadsheet, Loader2, Trash2, CheckCircle2, RotateCcw, Star } from "lucide-react";
+import { Upload, FileSpreadsheet, Loader2, Trash2, CheckCircle2, RotateCcw, Star, AlertTriangle, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import * as XLSX from "xlsx";
 import { normalizePlate, splitPlate } from "@/lib/plate-utils";
@@ -13,11 +13,18 @@ export const Route = createFileRoute("/_authenticated/upload")({
 });
 
 interface ParsedRow {
+  rowNumber: number;
   plate_raw: string;
   bank: string | null;
   car_type: string | null;
   chassis: string | null;
   plate_date: string | null;
+}
+
+interface UploadIssue {
+  rowNumber: number;
+  plateRaw: string;
+  reason: string;
 }
 
 function guessCol(headers: string[], candidates: string[]): number {
@@ -58,6 +65,7 @@ function parseExcel(file: File): Promise<{ rows: ParsedRow[]; headers: string[] 
           const rawPlate = String(row[plateIdx] ?? "").trim();
           if (!rawPlate) continue;
           rows.push({
+            rowNumber: i + 1,
             plate_raw: rawPlate,
             bank: bankIdx >= 0 ? String(row[bankIdx] ?? "").trim() || null : null,
             car_type: typeIdx >= 0 ? String(row[typeIdx] ?? "").trim() || null : null,
@@ -78,6 +86,8 @@ function UploadPage() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [lastFile, setLastFile] = useState<File | null>(null);
+  const [uploadReport, setUploadReport] = useState<{ success: number; failed: UploadIssue[]; fileName: string } | null>(null);
 
   const { data: batches, refetch } = useQuery({
     queryKey: ["batches"],
@@ -94,37 +104,57 @@ function UploadPage() {
   });
 
   async function handleFile(file: File) {
+    setLastFile(file);
     setUploading(true);
     setProgress(null);
+    setUploadReport(null);
     try {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) throw new Error("غير مسجّل");
       toast.info("جاري تحليل الملف...");
       const { rows } = await parseExcel(file);
       if (rows.length === 0) throw new Error("الملف لا يحتوي على بيانات");
+      const failed: UploadIssue[] = [];
+      const validRows = rows.filter((r) => {
+        const normalized = normalizePlate(r.plate_raw);
+        const { letters, digits } = splitPlate(normalized);
+        const ok = letters.length === 3 && digits.length === 4;
+        if (!ok) failed.push({ rowNumber: r.rowNumber, plateRaw: r.plate_raw, reason: `تنسيق غير صحيح: يجب 3 حروف و4 أرقام — الموجود ${letters.length} حروف و${digits.length} أرقام` });
+        return ok;
+      });
+      if (validRows.length === 0) {
+        setUploadReport({ success: 0, failed, fileName: file.name });
+        throw new Error("كل الصفوف فشلت بسبب تنسيق اللوحات");
+      }
 
       const { data: batch, error: batchErr } = await supabase
         .from("plate_batches")
-        .insert({ user_id: u.user.id, file_name: file.name, plates_count: rows.length })
+        .insert({ user_id: u.user.id, file_name: file.name, plates_count: validRows.length })
         .select("id")
         .single();
       if (batchErr) throw batchErr;
 
       const CHUNK = 1000;
-      setProgress({ done: 0, total: rows.length });
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        const slice = rows.slice(i, i + CHUNK).map((r) => {
+      setProgress({ done: 0, total: validRows.length });
+      for (let i = 0; i < validRows.length; i += CHUNK) {
+        const slice = validRows.slice(i, i + CHUNK).map((r) => {
           const normalized = normalizePlate(r.plate_raw);
           const { letters, digits } = splitPlate(normalized);
-          return { ...r, user_id: u.user!.id, batch_id: batch.id, plate_normalized: normalized, letters: letters || null, digits: digits || null };
+          const { rowNumber: _rowNumber, ...clean } = r;
+          void _rowNumber;
+          return { ...clean, user_id: u.user!.id, batch_id: batch.id, plate_normalized: normalized, letters: letters || null, digits: digits || null };
         });
         const { error } = await supabase.from("plates").insert(slice);
-        if (error) throw error;
-        setProgress({ done: Math.min(i + CHUNK, rows.length), total: rows.length });
+        if (error) {
+          for (const r of validRows.slice(i, i + CHUNK)) failed.push({ rowNumber: r.rowNumber, plateRaw: r.plate_raw, reason: error.message });
+          continue;
+        }
+        setProgress({ done: Math.min(i + CHUNK, validRows.length), total: validRows.length });
       }
       // Auto-activate the new batch
       await supabase.rpc("set_active_plate_batch", { _batch_id: batch.id });
-      toast.success(`تم رفع ${rows.length.toLocaleString("ar-EG")} لوحة وتفعيل النسخة الجديدة`);
+      setUploadReport({ success: validRows.length - failed.filter((f) => f.reason.includes("duplicate") || f.reason).length + failed.filter((f) => f.reason.startsWith("تنسيق")).length, failed, fileName: file.name });
+      toast.success(`تم رفع ${validRows.length.toLocaleString("ar-EG")} لوحة وتفعيل النسخة الجديدة`);
       qc.invalidateQueries({ queryKey: ["batches"] });
       qc.invalidateQueries({ queryKey: ["home-stats"] });
       qc.invalidateQueries({ queryKey: ["plates-index"] });
@@ -182,6 +212,37 @@ function UploadPage() {
           </div>
         )}
       </label>
+
+      {uploadReport && (
+        <div className="mt-4 rounded-2xl border border-border bg-card/80 p-4">
+          <div className="mb-3 flex items-start gap-2">
+            {uploadReport.failed.length ? <AlertTriangle className="mt-0.5 h-5 w-5 text-warning" /> : <CheckCircle2 className="mt-0.5 h-5 w-5 text-success" />}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-black">تقرير رفع الملف</p>
+              <p className="truncate text-[11px] text-muted-foreground">{uploadReport.fileName}</p>
+            </div>
+            {lastFile && uploadReport.failed.length > 0 && (
+              <button onClick={() => handleFile(lastFile)} disabled={uploading} className="inline-flex items-center gap-1 rounded-lg bg-primary/15 px-2 py-1.5 text-[10px] font-bold text-primary disabled:opacity-50">
+                <RefreshCw className="h-3 w-3" /> إعادة المحاولة
+              </button>
+            )}
+          </div>
+          <div className="mb-3 grid grid-cols-2 gap-2 text-center">
+            <div className="rounded-xl bg-success/10 p-2"><p className="font-black text-success">{uploadReport.success.toLocaleString("ar-EG")}</p><p className="text-[9px] text-muted-foreground">تم قبولها</p></div>
+            <div className="rounded-xl bg-warning/10 p-2"><p className="font-black text-warning">{uploadReport.failed.length.toLocaleString("ar-EG")}</p><p className="text-[9px] text-muted-foreground">فشلت</p></div>
+          </div>
+          {uploadReport.failed.length > 0 && (
+            <div className="max-h-48 overflow-auto space-y-1.5">
+              {uploadReport.failed.slice(0, 80).map((f) => (
+                <div key={`${f.rowNumber}-${f.plateRaw}`} className="rounded-xl bg-warning/10 px-3 py-2 text-[11px] text-warning">
+                  صف {f.rowNumber}: <span className="font-mono">{f.plateRaw || "—"}</span> — {f.reason}
+                </div>
+              ))}
+              {uploadReport.failed.length > 80 && <p className="text-center text-[11px] text-muted-foreground">والمزيد… أصلح الملف وأعد المحاولة</p>}
+            </div>
+          )}
+        </div>
+      )}
 
       {active && (
         <div className="mt-5 rounded-2xl border border-success/40 bg-success/10 p-4">
