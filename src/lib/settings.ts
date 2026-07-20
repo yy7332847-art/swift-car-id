@@ -74,6 +74,7 @@ export function loadSettings(): AppSettings {
       ...DEFAULT_SETTINGS,
       ...parsed,
       batterySaver: { ...DEFAULT_SETTINGS.batterySaver, ...(parsed.batterySaver ?? {}) },
+      duplicateDetection: { ...DEFAULT_SETTINGS.duplicateDetection, ...(parsed.duplicateDetection ?? {}) },
     };
   } catch {
     return DEFAULT_SETTINGS;
