@@ -82,27 +82,43 @@ function RecordPage() {
     queryKey: ["plates-index"],
     queryFn: async () => {
       const { data: u } = await supabase.auth.getUser();
-      if (!u.user) return { map: new Map<string, PlateInfo>(), list: [] as PlateInfo[], count: 0 };
+      if (!u.user) return { map: new Map<string, PlateInfo>(), list: [] as PlateInfo[], count: 0, source: "empty" as const };
       const map = new Map<string, PlateInfo>();
       const list: PlateInfo[] = [];
-      const PAGE = 1000;
-      let from = 0;
-      for (;;) {
-        const { data, error } = await supabase
-          .from("plates")
-          .select("id, plate_raw, plate_normalized, bank, car_type, chassis, plate_date")
-          .eq("user_id", u.user.id)
-          .range(from, from + PAGE - 1);
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        for (const p of data) {
-          map.set(p.plate_normalized, p);
-          list.push(p);
+      const online = typeof navigator === "undefined" ? true : navigator.onLine;
+      if (online) {
+        try {
+          const PAGE = 1000;
+          let from = 0;
+          for (;;) {
+            const { data, error } = await supabase
+              .from("plates")
+              .select("id, plate_raw, plate_normalized, bank, car_type, chassis, plate_date")
+              .eq("user_id", u.user.id)
+              .range(from, from + PAGE - 1);
+            if (error) throw error;
+            if (!data || data.length === 0) break;
+            for (const p of data) { map.set(p.plate_normalized, p); list.push(p); }
+            if (data.length < PAGE) break;
+            from += PAGE;
+          }
+          // Refresh offline cache in the background so a later drop-out is covered.
+          void import("@/lib/sync-queue").then((m) => m.refreshPlatesCache().catch(() => {}));
+          return { map, list, count: map.size, source: "server" as const };
+        } catch (e) {
+          console.warn("[plates-index] server fetch failed, trying offline cache", e);
         }
-        if (data.length < PAGE) break;
-        from += PAGE;
       }
-      return { map, list, count: map.size };
+      // Offline (or server failed) → hydrate from IndexedDB snapshot.
+      try {
+        const { openDB } = await import("idb");
+        const db = await openDB("plate-offline-v1", 1);
+        const all = (await db.getAll("plates_cache")) as PlateInfo[];
+        for (const p of all) { map.set(p.plate_normalized, p); list.push(p); }
+        return { map, list, count: map.size, source: "cache" as const };
+      } catch {
+        return { map, list, count: 0, source: "empty" as const };
+      }
     },
   });
 
