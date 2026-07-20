@@ -769,3 +769,66 @@ function findClosestPlate(input: string, list: PlateInfo[]): { raw: string; scor
   }
   return best && best.score >= 0.55 ? best : null;
 }
+function GeoPreflightSheet({ loading, result, onCancel, onContinue, onRetry }: { loading: boolean; result: GeoPreflight | null; onCancel: () => void; onContinue: () => void; onRetry: () => void }) {
+  const android = isAndroid();
+  const canContinue = !!result && result.permission === "granted" && !!result.probe;
+  const showBgWarn = !!result && result.native && !result.backgroundAvailable;
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 backdrop-blur-sm">
+      <motion.div initial={{ y: 400 }} animate={{ y: 0 }} exit={{ y: 400 }} transition={{ type: "spring", stiffness: 300, damping: 30 }} className="w-full max-w-[440px] rounded-t-3xl bg-background p-5 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-black">فحص GPS قبل التسجيل</h2>
+          <button onClick={onCancel} className="grid h-8 w-8 place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        {loading || !result ? (
+          <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> جاري الفحص...</div>
+        ) : (
+          <div className="space-y-2 text-xs">
+            <PreflightRow ok={result.supported} label="GPS مدعوم على الجهاز" bad="غير مدعوم" />
+            <PreflightRow ok={result.permission === "granted"} label="إذن الموقع ممنوح" bad={result.permission === "denied" ? "مرفوض" : "بانتظار الإذن"} />
+            <PreflightRow ok={!!result.probe} label={result.probe ? `إشارة GPS نشطة (دقة ${result.probe.acc.toFixed(0)}م)` : "لا توجد إشارة GPS"} bad={result.probeError ?? "تعذر قراءة الموقع"} />
+            <PreflightRow ok={result.highAccuracy} label="الدقة العالية مفعّلة" warn={!result.highAccuracy ? "الدقة المنخفضة — فعّل الوضع الدقيق في إعدادات الموقع" : undefined} />
+            {result.native && <PreflightRow ok={result.backgroundAvailable} label={result.backgroundAvailable ? "تتبع الخلفية متاح" : "تتبع الخلفية غير مثبّت"} warn={showBgWarn ? "ثبّت @capacitor-community/background-geolocation لبقاء GPS شغالاً في الخلفية" : undefined} />}
+            {android && result.permission === "granted" && !result.highAccuracy && (
+              <div className="rounded-xl border border-warning/40 bg-warning/10 p-3 text-[11px] leading-5 text-warning">
+                <b>لرفع الدقة على Android:</b> الإعدادات ← الموقع ← الوضع ← "دقة عالية" (GPS + Wi-Fi + شبكات). فعّل خدمة Google Location Accuracy إن وُجدت.
+              </div>
+            )}
+            {result.permission === "denied" && (
+              <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-[11px] leading-5 text-destructive">
+                {android ? "الإعدادات ← التطبيقات ← PlateCheck ← الأذونات ← الموقع ← السماح دائماً" : "افتح إعدادات المتصفح ← الموقع ← السماح لهذا التطبيق"}
+              </div>
+            )}
+            {result.native && !result.backgroundAvailable && (
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-[11px] leading-5">
+                عند إغلاق شاشة الجهاز أثناء الجلسة سيتوقف GPS. لتفعيل الخلفية على Android نفّذ:
+                <br/><code className="mt-1 inline-block rounded bg-background/70 px-1.5 py-0.5">bun add @capacitor-community/background-geolocation</code> ثم <code className="rounded bg-background/70 px-1.5 py-0.5">npx cap sync android</code>
+              </div>
+            )}
+          </div>
+        )}
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <button onClick={onRetry} disabled={loading} className="rounded-2xl bg-muted py-3 text-sm font-black disabled:opacity-50">إعادة الفحص</button>
+          <button onClick={onContinue} disabled={loading || !canContinue} className="rounded-2xl bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
+            {canContinue ? "متابعة وبدء التسجيل" : "متابعة بدون GPS"}
+          </button>
+        </div>
+        {!canContinue && !loading && (
+          <button onClick={onContinue} className="mt-2 w-full text-[11px] text-muted-foreground underline">تجاهل والبدء بدون تتبع الموقع</button>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function PreflightRow({ ok, label, bad, warn }: { ok: boolean; label: string; bad?: string; warn?: string }) {
+  return (
+    <div className={`flex items-start gap-2 rounded-xl border p-2.5 ${ok ? "border-success/30 bg-success/5" : warn ? "border-warning/30 bg-warning/5" : "border-destructive/30 bg-destructive/5"}`}>
+      {ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" /> : <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${warn ? "text-warning" : "text-destructive"}`} />}
+      <div className="min-w-0">
+        <p className="font-bold">{label}</p>
+        {!ok && (bad || warn) && <p className={`text-[10.5px] ${warn ? "text-warning" : "text-destructive"}`}>{warn ?? bad}</p>}
+      </div>
+    </div>
+  );
+}
