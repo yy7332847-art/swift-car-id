@@ -28,8 +28,8 @@ export const Route = createFileRoute("/api/transcribe")({
         upstream.append("file", audio as Blob, name);
         upstream.append("language", "ar");
         upstream.append("temperature", "0");
-        // Raw dictation only: no inferred plates and no filler phrases.
-        upstream.append("prompt", "اكتب النص العربي الخام المسموع فقط كما هو، خصوصاً حروف وأرقام اللوحات. لا تضف أمثلة، لا تكمل لوحة ناقصة، لا تكتب تحية أو كلاماً غير مسموع، وإذا الصوت غير واضح أعد نصاً فارغاً.");
+        // Raw dictation only: keep what was actually spoken, without plate inference or filtering.
+        upstream.append("prompt", "انسخ الكلام العربي المسموع حرفياً فقط كما قيل. لا تضف كلمات، لا تكمل لوحة ناقصة، لا تحوّل النص إلى لوحة، ولا تحذف التحيات أو الكلمات العادية إذا كانت مسموعة.");
 
         try {
           const res = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {

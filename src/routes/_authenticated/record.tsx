@@ -49,7 +49,6 @@ interface DraftSession {
   transcript: string;
   path: GeoPoint[];
   wasRecording: boolean;
-  reviewOpen?: boolean;
 }
 
 const DRAFT_KEY = "platecheck.active-recording-draft.v4";
@@ -150,7 +149,6 @@ function RecordPage() {
   const [savedSessionId, setSavedSessionId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lastCapture, setLastCapture] = useState<{ raw: string; complete: boolean; matched: boolean; at: number } | null>(null);
   const [geoOn, setGeoOn] = useState(false);
@@ -197,60 +195,34 @@ function RecordPage() {
 
   const startCapture = useCallback(async () => {
     if (recorderRef.current) return;
-    startGeoTracking();
-    startInstantSpeech();
-    recorderRef.current = await startRecorder({
-      chunkSeconds: 1.25,
-      overlapSeconds: 0.25,
-      targetSampleRate: 16000,
-      onLevel: setLevel,
-      onChunk: (wav) => processChunkRef.current(wav),
-    });
     setRecording(true);
+    try {
+      startGeoTracking();
+      startInstantSpeech();
+      recorderRef.current = await startRecorder({
+        chunkSeconds: 0.75,
+        overlapSeconds: 0.2,
+        targetSampleRate: 16000,
+        onLevel: setLevel,
+        onChunk: (wav) => processChunkRef.current(wav),
+      });
+    } catch (err) {
+      setRecording(false);
+      stopInstantSpeech();
+      stopGeoTracking();
+      throw err;
+    }
   }, []);
 
   useEffect(() => {
-    if (!startedAt || !sessionId) return;
-    if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current);
-    draftSaveTimerRef.current = window.setTimeout(() => {
-      const draft: DraftSession = { draftId: sessionId, userId: "", startedAt, entries, transcript, path, wasRecording: recording, reviewOpen };
-      supabase.auth.getUser().then(({ data }) => {
-        draft.userId = data.user?.id ?? "";
-        try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (e) { console.warn("draft save failed", e); }
-      }).catch(() => undefined);
-    }, 600);
+    localStorage.removeItem(DRAFT_KEY);
     return () => { if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current); };
-  }, [entries, path, recording, reviewOpen, sessionId, startedAt, transcript]);
+  }, []);
 
   useEffect(() => {
     if (restoredRef.current || platesLoading) return;
     restoredRef.current = true;
-    (async () => {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (!raw) return;
-      const draft = JSON.parse(raw) as DraftSession;
-      if (!draft?.draftId || !draft.startedAt || Date.now() - draft.startedAt > 12 * 60 * 60 * 1000) {
-        localStorage.removeItem(DRAFT_KEY);
-        return;
-      }
-      const { data } = await supabase.auth.getUser();
-      if (draft.userId && data.user?.id && draft.userId !== data.user.id) return;
-      sessionIdRef.current = draft.draftId;
-      setSessionId(draft.draftId);
-      setStartedAt(draft.startedAt);
-      setElapsed(Math.floor((Date.now() - draft.startedAt) / 1000));
-      setTranscript(draft.transcript ?? "");
-      setLiveText(draft.transcript?.slice(-140) ?? "");
-      setPath(draft.path ?? []);
-      pathRef.current = draft.path ?? [];
-      applyEntries(draft.entries ?? []);
-      setReviewOpen(!!draft.reviewOpen);
-      rebuildDedupState(draft.entries ?? [], growableRef.current, finalizedRef.current);
-      if (draft.wasRecording && !draft.reviewOpen) {
-        toast.info("تم استكمال الجلسة المفتوحة بعد تحديث الصفحة");
-        await startCapture();
-      }
-    })().catch((e) => console.error("restore draft", e));
+    localStorage.removeItem(DRAFT_KEY);
   }, [applyEntries, platesLoading, startCapture]);
 
   const ingestRecognizedText = useCallback((rawText: string) => {
@@ -506,7 +478,6 @@ function RecordPage() {
       pathRef.current = [];
       currentPosRef.current = null;
       rawPathRef.current = [];
-      setReviewOpen(false);
       setStartedAt(Date.now());
       setElapsed(0);
       await startCapture();
@@ -524,11 +495,7 @@ function RecordPage() {
     const waitStart = Date.now();
     while (pendingRef.current > 0 && Date.now() - waitStart < 8000) await new Promise((r) => setTimeout(r, 200));
     if (sessionIdRef.current) {
-      setReviewOpen(true);
-      const current = entriesRef.current;
-      const incomplete = current.filter((e) => !e.complete).length;
-      toast.info(`المعاينة جاهزة — ${current.length} لوحة قبل الحفظ النهائي`);
-      if (incomplete > 0) toast.warning(`${incomplete} لوحة غير مكتملة — راجع السبب في المعاينة`, { duration: 6000 });
+      await saveReviewedSession();
     }
     setLevel(0);
   }
@@ -584,7 +551,6 @@ function RecordPage() {
       setSessionId(null);
       sessionIdRef.current = null;
       stopInstantSpeech();
-      setReviewOpen(false);
       setStartedAt(null);
       toast.success(`تم حفظ الجلسة — ${current.length} لوحة، ${matched} مطابقة`);
     } catch (err) {
@@ -601,7 +567,6 @@ function RecordPage() {
     setSessionId(null);
     stopInstantSpeech();
     setStartedAt(null);
-    setReviewOpen(false);
     setTranscript("");
     setLiveText("");
     applyEntries([]);
@@ -647,19 +612,23 @@ function RecordPage() {
       {notActive && <div className="mb-4 rounded-2xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning">الحساب غير مفعّل. لا يمكن استخدام التسجيل.</div>}
 
       <div className="my-4 flex flex-col items-center">
-        <button onClick={recording ? stopRecording : beginSession} disabled={!!notActive || platesLoading || reviewOpen} className={`relative grid h-40 w-40 place-items-center rounded-full transition-all disabled:opacity-40 ${recording ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground glow-primary"}`}>
+        <button onClick={recording ? stopRecording : beginSession} disabled={!!notActive || platesLoading || saving} className={`relative grid h-40 w-40 place-items-center rounded-full transition-all disabled:opacity-40 ${recording ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground glow-primary"}`}>
           {recording && <><motion.span className="absolute inset-0 rounded-full border-2 border-destructive" animate={{ scale: [1, 1.4 + level * 4], opacity: [0.6, 0] }} transition={{ duration: 1.5, repeat: Infinity }} /><motion.span className="absolute inset-0 rounded-full border-2 border-destructive" animate={{ scale: [1, 1.8 + level * 4], opacity: [0.4, 0] }} transition={{ duration: 1.5, repeat: Infinity, delay: 0.4 }} /></>}
           {recording ? <Square className="h-16 w-16" strokeWidth={2.5} fill="currentColor" /> : <Mic className="h-16 w-16" strokeWidth={2.5} />}
         </button>
-        <p className="mt-4 text-lg font-black">{recording || startedAt ? formatTime(elapsed) : "اضغط للبدء"}</p>
+        <p className="mt-4 text-lg font-black">{recording ? formatTime(elapsed) : saving ? "جاري الحفظ..." : "ابدأ جلسة جديدة"}</p>
         {processing && <p className="mt-1 flex items-center gap-1 text-xs text-primary"><Loader2 className="h-3 w-3 animate-spin" /> جاري التعرّف...</p>}
-        {!recording && !reviewOpen && <button onClick={() => setCalibrating(true)} disabled={!!notActive} className="mt-3 inline-flex items-center gap-1 rounded-full bg-muted/60 px-3 py-1.5 text-xs font-bold disabled:opacity-40"><Settings2 className="h-3 w-3" /> معايرة الميكروفون</button>}
+        {!recording && <button onClick={() => setCalibrating(true)} disabled={!!notActive || saving} className="mt-3 inline-flex items-center gap-1 rounded-full bg-muted/60 px-3 py-1.5 text-xs font-bold disabled:opacity-40"><Settings2 className="h-3 w-3" /> معايرة الميكروفون</button>}
       </div>
 
       {recording && <LiveStatusBar processing={processing} transcript={liveText || transcript} lastCapture={lastCapture} level={level} />}
-      {recording && (liveText || transcript) && (
-        <div className="mb-3 rounded-2xl border border-primary/25 bg-primary/5 p-3 text-right text-lg font-black leading-8" dir="rtl">
-          {(liveText || transcript.slice(-180)).trim()}
+      {recording && (
+        <div className="mb-3 rounded-2xl border border-primary/25 bg-primary/5 p-3 text-right" dir="rtl">
+          <div className="mb-1 text-[11px] font-bold text-primary">النص الخام المباشر</div>
+          <div className="min-h-14 text-lg font-black leading-8 text-foreground">
+            {(liveText || transcript.slice(-220)).trim() || "..."}
+          </div>
+          {transcript && <div className="mt-2 max-h-24 overflow-auto rounded-xl bg-background/60 p-2 text-sm font-bold leading-7 text-muted-foreground">{transcript}</div>}
         </div>
       )}
 
@@ -696,7 +665,6 @@ function RecordPage() {
       {recording && perfStats.count > 0 && <PerfPanel stats={perfStats} />}
 
       {!recording && savedSessionId && entries.length > 0 && <Link to="/sessions/$id" params={{ id: savedSessionId }} className="mb-3 block rounded-2xl bg-primary p-3 text-center text-sm font-bold text-primary-foreground">عرض تقرير الجلسة</Link>}
-      {!recording && reviewOpen && <SessionPreview entries={entries} transcript={transcript} elapsed={elapsed} saving={saving} onSave={saveReviewedSession} onDiscard={discardDraft} onDownload={exportCurrentPDF} />}
 
       <div className="flex-1 space-y-2 pb-4">
         <AnimatePresence initial={false}>{entries.slice(0, 80).map((e) => <PlateCard key={e.id} entry={e} />)}</AnimatePresence>
