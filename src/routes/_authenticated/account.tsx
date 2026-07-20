@@ -97,6 +97,9 @@ function AccountPage() {
         <Link to="/sessions" className="glass flex items-center justify-center gap-2 rounded-2xl p-3 text-xs font-black">
           <ListChecks className="h-4 w-4 text-primary" /> جلساتي
         </Link>
+        <Link to="/heatmap" className="glass col-span-2 flex items-center justify-center gap-2 rounded-2xl p-3 text-xs font-black">
+          <Flame className="h-4 w-4 text-destructive" /> الخريطة الحرارية (آخر 30 يوم)
+        </Link>
         <Link to="/settings" className="glass col-span-2 flex items-center justify-center gap-2 rounded-2xl p-3 text-xs font-black">
           <SettingsIcon className="h-4 w-4 text-primary" /> الإعدادات (البطارية والتنبيهات)
         </Link>
