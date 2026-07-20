@@ -107,6 +107,31 @@ function parseArabicNumberRun(words: string[], startIdx: number): { value: strin
 
 export interface DetectedPlate { raw: string; normalized: string; letters: string; digits: string; complete: boolean; confidence: number; suspectPart?: string; correctionNote?: string; }
 
+// Reverse maps for hallucination guard (each plate char must actually appear in the transcript).
+const LETTER_TO_NAMES: Record<string, string[]> = {};
+for (const [name, ch] of Object.entries(LETTER_NAMES)) { (LETTER_TO_NAMES[ch] ||= []).push(name); }
+const DIGIT_TO_WORDS: Record<string, string[]> = {};
+for (const [w, d] of Object.entries(DIGIT_WORDS)) { (DIGIT_TO_WORDS[d] ||= []).push(w); }
+
+/** True if every letter and every digit of the plate has some spoken evidence in the transcript. */
+export function plateAppearsInText(letters: string, digits: string, text: string): boolean {
+  const norm = " " + normalizeArabic(text) + " ";
+  for (const ch of letters) {
+    const names = LETTER_TO_NAMES[ch] ?? [];
+    const found = names.some((n) => norm.includes(` ${n} `) || norm.includes(` ${n}`) || norm.includes(`${n} `));
+    if (!found) return false;
+  }
+  for (const d of digits) {
+    if (norm.includes(d)) continue;
+    const words = DIGIT_TO_WORDS[d] ?? [];
+    if (words.some((w) => norm.includes(w))) continue;
+    // Digit may come from tens/hundreds combos — accept if any number-word appears.
+    if (/[0-9]/.test(norm) || /عش|مي|مئ|الف/.test(norm)) continue;
+    return false;
+  }
+  return true;
+}
+
 function pushFound(found: DetectedPlate[], plate: Omit<DetectedPlate, "raw" | "normalized" | "complete" | "confidence"> & { confidence?: number }) {
   const letters = plate.letters.slice(0, 3), digits = plate.digits.slice(0, 4);
   if (letters.length < 2 || digits.length < 2) return;
