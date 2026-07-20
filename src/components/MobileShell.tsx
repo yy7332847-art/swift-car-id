@@ -45,6 +45,10 @@ export function MobileShell({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    startSyncEngine();
+  }, []);
+
+  useEffect(() => {
     (async () => {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return;
