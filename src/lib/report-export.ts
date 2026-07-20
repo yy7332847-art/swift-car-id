@@ -132,8 +132,8 @@ function buildReportHTML(session: SessionRow, rows: DetectedRow[]): string {
 
 async function waitFonts(): Promise<void> {
   try {
-    // @ts-expect-error document.fonts is standard on modern browsers
-    if (document.fonts?.ready) await document.fonts.ready;
+    const f = (document as unknown as { fonts?: { ready?: Promise<unknown> } }).fonts;
+    if (f?.ready) await f.ready;
   } catch { /* ignore */ }
 }
 
