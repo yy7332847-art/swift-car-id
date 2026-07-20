@@ -135,15 +135,32 @@ export function TrackingMap({ path, markers = [], follow = false, showCar = fals
     }
   }, [path, markers, follow, showCar, playbackIndex, focusId, pathColor]);
 
-  // markers
+  // markers (fan out overlapping coords so every plate is visible)
   useEffect(() => {
     const Ll = leafletRef.current;
     const layer = markerLayerRef.current;
     if (!Ll || !layer) return;
     layer.clearLayers();
     markerRefs.current.clear();
+    const groups = new Map<string, number>();
+    const keyOf = (lat: number, lng: number) => `${lat.toFixed(5)}:${lng.toFixed(5)}`;
     for (const m of markers) {
-      const marker = Ll.marker([m.lat, m.lng], { icon: plateIcon(Ll, m.status, m.label, focusId === m.id) });
+      const k = keyOf(m.lat, m.lng);
+      const idx = groups.get(k) ?? 0;
+      let lat = m.lat;
+      let lng = m.lng;
+      if (idx > 0) {
+        const ring = Math.ceil(idx / 8);
+        const posInRing = (idx - 1) % 8;
+        const angle = (posInRing / 8) * Math.PI * 2;
+        const rMeters = 3 * ring;
+        const dLat = (rMeters / 111320) * Math.cos(angle);
+        const dLng = (rMeters / (111320 * Math.cos((lat * Math.PI) / 180))) * Math.sin(angle);
+        lat += dLat;
+        lng += dLng;
+      }
+      groups.set(k, idx + 1);
+      const marker = Ll.marker([lat, lng], { icon: plateIcon(Ll, m.status, m.label, focusId === m.id) });
       if (onMarkerClick) marker.on("click", () => onMarkerClick(m.id));
       marker.addTo(layer);
       markerRefs.current.set(m.id, marker);
