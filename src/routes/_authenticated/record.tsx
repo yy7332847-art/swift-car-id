@@ -1,17 +1,27 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, FileText, Save, Trash2 } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, FileText, Save, Trash2, Activity } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
 import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, type GeoPoint, type WatchHandle, type PermissionState } from "@/lib/geo";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+
+interface PerfSample { chunkGapMs: number; sttMs: number; parseMs: number; matchMs: number; totalMs: number; textLen: number; at: number }
+interface PerfStats { count: number; avgChunkGapMs: number; avgSttMs: number; avgParseMs: number; avgMatchMs: number; avgTotalMs: number; lastLagMs: number; queue: number }
+const PERF_BUFFER_SIZE = 20;
+function computePerfStats(samples: PerfSample[], queue: number): PerfStats {
+  if (samples.length === 0) return { count: 0, avgChunkGapMs: 0, avgSttMs: 0, avgParseMs: 0, avgMatchMs: 0, avgTotalMs: 0, lastLagMs: 0, queue };
+  const s = samples.reduce((a, x) => ({ chunkGapMs: a.chunkGapMs + x.chunkGapMs, sttMs: a.sttMs + x.sttMs, parseMs: a.parseMs + x.parseMs, matchMs: a.matchMs + x.matchMs, totalMs: a.totalMs + x.totalMs }), { chunkGapMs: 0, sttMs: 0, parseMs: 0, matchMs: 0, totalMs: 0 });
+  const n = samples.length;
+  return { count: n, avgChunkGapMs: s.chunkGapMs / n, avgSttMs: s.sttMs / n, avgParseMs: s.parseMs / n, avgMatchMs: s.matchMs / n, avgTotalMs: s.totalMs / n, lastLagMs: samples[samples.length - 1]?.totalMs ?? 0, queue };
+}
 
 export const Route = createFileRoute("/_authenticated/record")({
   component: RecordPage,
