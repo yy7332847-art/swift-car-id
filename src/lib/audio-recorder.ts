@@ -103,7 +103,7 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
     let sum = 0;
     for (let i = 0; i < ds.length; i++) sum += ds[i] * ds[i];
     const rms = Math.sqrt(sum / ds.length);
-    if (rms < 0.005) return;
+    if (rms < 0.0015) return;
     const wav = encodeWav(ds, targetRate);
     opts.onChunk(wav);
   }

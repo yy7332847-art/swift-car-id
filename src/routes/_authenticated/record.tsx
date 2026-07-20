@@ -5,14 +5,12 @@ import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, FileText, Save, Trash2, Activity } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, Activity } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
 import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, runGeoPreflight, isAndroid, type GeoPoint, type WatchHandle, type PermissionState, type GeoPreflight } from "@/lib/geo";
 import { loadSettings } from "@/lib/settings";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 
 interface PerfSample { chunkGapMs: number; sttMs: number; parseMs: number; matchMs: number; totalMs: number; textLen: number; at: number }
 interface PerfStats { count: number; avgChunkGapMs: number; avgSttMs: number; avgParseMs: number; avgMatchMs: number; avgTotalMs: number; lastLagMs: number; queue: number }
@@ -39,17 +37,6 @@ interface PlateEntry extends DetectedPlate {
   latitude?: number | null;
   longitude?: number | null;
   matchedPlate?: Omit<PlateInfo, "id" | "plate_normalized">;
-}
-
-interface DraftSession {
-  draftId: string;
-  userId: string;
-  startedAt: number;
-  entries: PlateEntry[];
-  transcript: string;
-  path: GeoPoint[];
-  wasRecording: boolean;
-  reviewOpen?: boolean;
 }
 
 const DRAFT_KEY = "platecheck.active-recording-draft.v4";
@@ -150,7 +137,6 @@ function RecordPage() {
   const [savedSessionId, setSavedSessionId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lastCapture, setLastCapture] = useState<{ raw: string; complete: boolean; matched: boolean; at: number } | null>(null);
   const [geoOn, setGeoOn] = useState(false);
@@ -197,60 +183,34 @@ function RecordPage() {
 
   const startCapture = useCallback(async () => {
     if (recorderRef.current) return;
-    startGeoTracking();
-    startInstantSpeech();
-    recorderRef.current = await startRecorder({
-      chunkSeconds: 1.25,
-      overlapSeconds: 0.25,
-      targetSampleRate: 16000,
-      onLevel: setLevel,
-      onChunk: (wav) => processChunkRef.current(wav),
-    });
     setRecording(true);
+    try {
+      startGeoTracking();
+      startInstantSpeech();
+      recorderRef.current = await startRecorder({
+        chunkSeconds: 0.75,
+        overlapSeconds: 0.2,
+        targetSampleRate: 16000,
+        onLevel: setLevel,
+        onChunk: (wav) => processChunkRef.current(wav),
+      });
+    } catch (err) {
+      setRecording(false);
+      stopInstantSpeech();
+      stopGeoTracking();
+      throw err;
+    }
   }, []);
 
   useEffect(() => {
-    if (!startedAt || !sessionId) return;
-    if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current);
-    draftSaveTimerRef.current = window.setTimeout(() => {
-      const draft: DraftSession = { draftId: sessionId, userId: "", startedAt, entries, transcript, path, wasRecording: recording, reviewOpen };
-      supabase.auth.getUser().then(({ data }) => {
-        draft.userId = data.user?.id ?? "";
-        try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (e) { console.warn("draft save failed", e); }
-      }).catch(() => undefined);
-    }, 600);
+    localStorage.removeItem(DRAFT_KEY);
     return () => { if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current); };
-  }, [entries, path, recording, reviewOpen, sessionId, startedAt, transcript]);
+  }, []);
 
   useEffect(() => {
     if (restoredRef.current || platesLoading) return;
     restoredRef.current = true;
-    (async () => {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (!raw) return;
-      const draft = JSON.parse(raw) as DraftSession;
-      if (!draft?.draftId || !draft.startedAt || Date.now() - draft.startedAt > 12 * 60 * 60 * 1000) {
-        localStorage.removeItem(DRAFT_KEY);
-        return;
-      }
-      const { data } = await supabase.auth.getUser();
-      if (draft.userId && data.user?.id && draft.userId !== data.user.id) return;
-      sessionIdRef.current = draft.draftId;
-      setSessionId(draft.draftId);
-      setStartedAt(draft.startedAt);
-      setElapsed(Math.floor((Date.now() - draft.startedAt) / 1000));
-      setTranscript(draft.transcript ?? "");
-      setLiveText(draft.transcript?.slice(-140) ?? "");
-      setPath(draft.path ?? []);
-      pathRef.current = draft.path ?? [];
-      applyEntries(draft.entries ?? []);
-      setReviewOpen(!!draft.reviewOpen);
-      rebuildDedupState(draft.entries ?? [], growableRef.current, finalizedRef.current);
-      if (draft.wasRecording && !draft.reviewOpen) {
-        toast.info("تم استكمال الجلسة المفتوحة بعد تحديث الصفحة");
-        await startCapture();
-      }
-    })().catch((e) => console.error("restore draft", e));
+    localStorage.removeItem(DRAFT_KEY);
   }, [applyEntries, platesLoading, startCapture]);
 
   const ingestRecognizedText = useCallback((rawText: string) => {
@@ -506,7 +466,6 @@ function RecordPage() {
       pathRef.current = [];
       currentPosRef.current = null;
       rawPathRef.current = [];
-      setReviewOpen(false);
       setStartedAt(Date.now());
       setElapsed(0);
       await startCapture();
@@ -524,11 +483,7 @@ function RecordPage() {
     const waitStart = Date.now();
     while (pendingRef.current > 0 && Date.now() - waitStart < 8000) await new Promise((r) => setTimeout(r, 200));
     if (sessionIdRef.current) {
-      setReviewOpen(true);
-      const current = entriesRef.current;
-      const incomplete = current.filter((e) => !e.complete).length;
-      toast.info(`المعاينة جاهزة — ${current.length} لوحة قبل الحفظ النهائي`);
-      if (incomplete > 0) toast.warning(`${incomplete} لوحة غير مكتملة — راجع السبب في المعاينة`, { duration: 6000 });
+      await saveReviewedSession();
     }
     setLevel(0);
   }
@@ -584,7 +539,6 @@ function RecordPage() {
       setSessionId(null);
       sessionIdRef.current = null;
       stopInstantSpeech();
-      setReviewOpen(false);
       setStartedAt(null);
       toast.success(`تم حفظ الجلسة — ${current.length} لوحة، ${matched} مطابقة`);
     } catch (err) {
@@ -601,31 +555,12 @@ function RecordPage() {
     setSessionId(null);
     stopInstantSpeech();
     setStartedAt(null);
-    setReviewOpen(false);
     setTranscript("");
     setLiveText("");
     applyEntries([]);
     setPath([]);
     pathRef.current = [];
     toast.success("تم حذف المسودة");
-  }
-
-  function exportCurrentPDF() {
-    const current = entriesRef.current;
-    const doc = new jsPDF({ orientation: "portrait", unit: "pt" });
-    doc.setFontSize(14);
-    doc.text(`Current Session Preview - ${new Date(startedAt ?? Date.now()).toLocaleString()}`, 40, 40);
-    doc.setFontSize(10);
-    doc.text(`Duration: ${formatTime(elapsed)} | Total: ${current.length} | Matched: ${current.filter((e) => e.matchedPlate).length} | Incomplete: ${current.filter((e) => !e.complete).length}`, 40, 60);
-    if (transcript) doc.text(`Transcript: ${transcript.slice(-900)}`, 40, 78, { maxWidth: 520 });
-    autoTable(doc, {
-      startY: transcript ? 122 : 86,
-      head: [["#", "Plate", "Status", "Spoken Text", "Note", "Lat", "Lng"]],
-      body: [...current].reverse().map((e, i) => [i + 1, e.raw, e.matchedPlate ? "MATCH" : !e.complete ? "INCOMPLETE" : "NOT FOUND", e.spokenText, e.correctionNote ?? e.suspectPart ?? "", e.latitude?.toFixed(5) ?? "", e.longitude?.toFixed(5) ?? ""]),
-      styles: { fontSize: 7, cellWidth: "wrap" },
-      headStyles: { fillColor: [30, 100, 180] },
-    });
-    doc.save(`current-session-${Date.now()}.pdf`);
   }
 
   useEffect(() => () => { stopInstantSpeech(); void recorderRef.current?.stop(); stopGeoTracking(); }, []);
@@ -647,19 +582,23 @@ function RecordPage() {
       {notActive && <div className="mb-4 rounded-2xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning">الحساب غير مفعّل. لا يمكن استخدام التسجيل.</div>}
 
       <div className="my-4 flex flex-col items-center">
-        <button onClick={recording ? stopRecording : beginSession} disabled={!!notActive || platesLoading || reviewOpen} className={`relative grid h-40 w-40 place-items-center rounded-full transition-all disabled:opacity-40 ${recording ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground glow-primary"}`}>
+        <button onClick={recording ? stopRecording : beginSession} disabled={!!notActive || platesLoading || saving} className={`relative grid h-40 w-40 place-items-center rounded-full transition-all disabled:opacity-40 ${recording ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground glow-primary"}`}>
           {recording && <><motion.span className="absolute inset-0 rounded-full border-2 border-destructive" animate={{ scale: [1, 1.4 + level * 4], opacity: [0.6, 0] }} transition={{ duration: 1.5, repeat: Infinity }} /><motion.span className="absolute inset-0 rounded-full border-2 border-destructive" animate={{ scale: [1, 1.8 + level * 4], opacity: [0.4, 0] }} transition={{ duration: 1.5, repeat: Infinity, delay: 0.4 }} /></>}
           {recording ? <Square className="h-16 w-16" strokeWidth={2.5} fill="currentColor" /> : <Mic className="h-16 w-16" strokeWidth={2.5} />}
         </button>
-        <p className="mt-4 text-lg font-black">{recording || startedAt ? formatTime(elapsed) : "اضغط للبدء"}</p>
+        <p className="mt-4 text-lg font-black">{recording ? formatTime(elapsed) : saving ? "جاري الحفظ..." : "ابدأ جلسة جديدة"}</p>
         {processing && <p className="mt-1 flex items-center gap-1 text-xs text-primary"><Loader2 className="h-3 w-3 animate-spin" /> جاري التعرّف...</p>}
-        {!recording && !reviewOpen && <button onClick={() => setCalibrating(true)} disabled={!!notActive} className="mt-3 inline-flex items-center gap-1 rounded-full bg-muted/60 px-3 py-1.5 text-xs font-bold disabled:opacity-40"><Settings2 className="h-3 w-3" /> معايرة الميكروفون</button>}
+        {!recording && <button onClick={() => setCalibrating(true)} disabled={!!notActive || saving} className="mt-3 inline-flex items-center gap-1 rounded-full bg-muted/60 px-3 py-1.5 text-xs font-bold disabled:opacity-40"><Settings2 className="h-3 w-3" /> معايرة الميكروفون</button>}
       </div>
 
       {recording && <LiveStatusBar processing={processing} transcript={liveText || transcript} lastCapture={lastCapture} level={level} />}
-      {recording && (liveText || transcript) && (
-        <div className="mb-3 rounded-2xl border border-primary/25 bg-primary/5 p-3 text-right text-lg font-black leading-8" dir="rtl">
-          {(liveText || transcript.slice(-180)).trim()}
+      {recording && (
+        <div className="mb-3 rounded-2xl border border-primary/25 bg-primary/5 p-3 text-right" dir="rtl">
+          <div className="mb-1 text-[11px] font-bold text-primary">النص الخام المباشر</div>
+          <div className="min-h-14 text-lg font-black leading-8 text-foreground">
+            {(liveText || transcript.slice(-220)).trim() || "..."}
+          </div>
+          {transcript && <div className="mt-2 max-h-24 overflow-auto rounded-xl bg-background/60 p-2 text-sm font-bold leading-7 text-muted-foreground">{transcript}</div>}
         </div>
       )}
 
@@ -696,7 +635,6 @@ function RecordPage() {
       {recording && perfStats.count > 0 && <PerfPanel stats={perfStats} />}
 
       {!recording && savedSessionId && entries.length > 0 && <Link to="/sessions/$id" params={{ id: savedSessionId }} className="mb-3 block rounded-2xl bg-primary p-3 text-center text-sm font-bold text-primary-foreground">عرض تقرير الجلسة</Link>}
-      {!recording && reviewOpen && <SessionPreview entries={entries} transcript={transcript} elapsed={elapsed} saving={saving} onSave={saveReviewedSession} onDiscard={discardDraft} onDownload={exportCurrentPDF} />}
 
       <div className="flex-1 space-y-2 pb-4">
         <AnimatePresence initial={false}>{entries.slice(0, 80).map((e) => <PlateCard key={e.id} entry={e} />)}</AnimatePresence>
@@ -706,19 +644,6 @@ function RecordPage() {
 
       <AnimatePresence>{calibrating && <CalibrationSheet onClose={() => setCalibrating(false)} />}</AnimatePresence>
       <AnimatePresence>{preflightOpen && <GeoPreflightSheet loading={preflightLoading} result={preflight} onCancel={() => setPreflightOpen(false)} onContinue={confirmAndStart} onRetry={async () => { setPreflightLoading(true); try { setPreflight(await runGeoPreflight()); } finally { setPreflightLoading(false); } }} />}</AnimatePresence>
-    </div>
-  );
-}
-
-function SessionPreview({ entries, transcript, elapsed, saving, onSave, onDiscard, onDownload }: { entries: PlateEntry[]; transcript: string; elapsed: number; saving: boolean; onSave: () => void; onDiscard: () => void; onDownload: () => void }) {
-  const matched = entries.filter((e) => e.matchedPlate).length;
-  const incomplete = entries.filter((e) => !e.complete).length;
-  return (
-    <div className="mb-4 rounded-3xl border border-primary/30 bg-primary/5 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="text-base font-black">معاينة قبل الحفظ</h2><p className="text-[11px] text-muted-foreground">راجع النص والتطابقات ثم احفظ الجلسة نهائياً</p></div><span className="rounded-full bg-background px-2.5 py-1 text-[10px] font-bold tabular-nums">{formatTime(elapsed)}</span></div>
-      <div className="mb-3 grid grid-cols-3 gap-2 text-center"><div className="rounded-xl bg-background/70 p-2"><p className="font-black">{entries.length}</p><p className="text-[9px] text-muted-foreground">مكتشفة</p></div><div className="rounded-xl bg-success/10 p-2"><p className="font-black text-success">{matched}</p><p className="text-[9px] text-muted-foreground">مطابقة</p></div><div className="rounded-xl bg-warning/10 p-2"><p className="font-black text-warning">{incomplete}</p><p className="text-[9px] text-muted-foreground">ناقصة</p></div></div>
-      <div className="mb-3 max-h-24 overflow-auto rounded-2xl bg-background/70 p-3 text-xs leading-6 text-muted-foreground" dir="rtl">{transcript || "لا يوجد نص مسجل"}</div>
-      <div className="grid grid-cols-3 gap-2"><button onClick={onDownload} className="inline-flex items-center justify-center gap-1 rounded-xl bg-background px-2 py-2 text-[11px] font-bold"><FileText className="h-3.5 w-3.5" /> PDF</button><button onClick={onDiscard} className="inline-flex items-center justify-center gap-1 rounded-xl bg-destructive/15 px-2 py-2 text-[11px] font-bold text-destructive"><Trash2 className="h-3.5 w-3.5" /> حذف</button><button onClick={onSave} disabled={saving} className="inline-flex items-center justify-center gap-1 rounded-xl bg-primary px-2 py-2 text-[11px] font-bold text-primary-foreground disabled:opacity-50">{saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} حفظ</button></div>
     </div>
   );
 }
