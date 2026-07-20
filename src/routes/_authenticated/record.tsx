@@ -631,6 +631,28 @@ function formatTime(s: number): string {
 
 // (haversine is now provided by @/lib/geo)
 
+function GeoDeniedBanner({ onRetry }: { onRetry: () => void }) {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const isAndroid = /Android/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const hint = isAndroid
+    ? "افتح إعدادات الهاتف ← التطبيقات ← PlateCheck ← الأذونات ← الموقع ← السماح دائماً"
+    : isIOS
+      ? "افتح الإعدادات ← الخصوصية والأمان ← خدمات الموقع ← Safari/PlateCheck ← السماح أثناء الاستخدام"
+      : "افتح إعدادات المتصفح للموقع الحالي وفعّل إذن الموقع (Location) ثم اضغط إعادة المحاولة";
+  return (
+    <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3">
+      <div className="mb-1 flex items-center gap-2 text-sm font-black text-destructive">
+        <MapPinOff className="h-4 w-4" /> إذن الموقع مرفوض
+      </div>
+      <p className="mb-2 text-[11px] leading-5 text-muted-foreground">{hint}</p>
+      <button onClick={onRetry} className="inline-flex items-center gap-1 rounded-lg bg-destructive px-3 py-1.5 text-[11px] font-bold text-destructive-foreground">
+        <MapPin className="h-3 w-3" /> إعادة طلب الإذن
+      </button>
+    </div>
+  );
+}
+
 function missingPartsLabel(p: DetectedPlate): string | undefined {
   const missing: string[] = [];
   if (p.letters.length < 3) missing.push(`${3 - p.letters.length} حرف`);
