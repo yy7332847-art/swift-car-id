@@ -103,7 +103,7 @@ function parseArabicNumberRun(words: string[], startIdx: number): { value: strin
     if (DIGIT_WORDS[w] === undefined) break;
     seq += DIGIT_WORDS[w]; seqConsumed++;
   }
-  if (seq.length >= 2) candidates.push({ value: seq, consumed: seqConsumed });
+  if (seq.length >= 2) return { value: seq, consumed: seqConsumed };
 
   // Strategy B: two two-digit groups ("اثنين واربعين اتنين وعشرين")
   const groups: string[] = [];
