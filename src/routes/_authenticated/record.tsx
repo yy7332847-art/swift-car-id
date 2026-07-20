@@ -8,7 +8,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, FileText, Save, Trash2 } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
-import { TrackingMap, type GeoPoint } from "@/components/TrackingMap";
+import { TrackingMap } from "@/components/TrackingMap";
+import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, type GeoPoint, type WatchHandle, type PermissionState } from "@/lib/geo";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -116,11 +117,13 @@ function RecordPage() {
   const [lastCapture, setLastCapture] = useState<{ raw: string; complete: boolean; matched: boolean; at: number } | null>(null);
   const [geoOn, setGeoOn] = useState(false);
   const [geoError, setGeoError] = useState<string | null>(null);
+  const [geoPerm, setGeoPerm] = useState<PermissionState>("prompt");
   const [path, setPath] = useState<GeoPoint[]>([]);
 
   const currentPosRef = useRef<GeoPoint | null>(null);
-  const watchIdRef = useRef<number | null>(null);
-  const lastPointAtRef = useRef(0);
+  const geoWatchRef = useRef<WatchHandle | null>(null);
+  const rawPathRef = useRef<GeoPoint[]>([]);
+  // (path throttling now handled inside geo.ts via shouldAcceptPoint)
   const pathRef = useRef<GeoPoint[]>([]);
   const recorderRef = useRef<RecorderHandle | null>(null);
   const processChunkRef = useRef<(wav: Blob) => void>(() => undefined);
@@ -292,39 +295,49 @@ function RecordPage() {
     processChunkRef.current = (wav: Blob) => { void processChunk(wav); };
   }, [processChunk]);
 
-  function startGeoTracking() {
-    if (watchIdRef.current != null) return;
-    if (!("geolocation" in navigator)) {
+  async function ensureGeoPermission(): Promise<PermissionState> {
+    const cur = await checkGeoPermission();
+    setGeoPerm(cur);
+    if (cur === "granted") return cur;
+    if (cur === "unsupported") {
       setGeoError("الموقع الجغرافي غير مدعوم على هذا الجهاز");
-      return;
+      return cur;
     }
+    const asked = await requestGeoPermission();
+    setGeoPerm(asked);
+    if (asked === "denied") setGeoError("تم رفض إذن الموقع — فعّله من إعدادات التطبيق ثم أعد المحاولة");
+    return asked;
+  }
+
+  async function startGeoTracking() {
+    if (geoWatchRef.current) return;
+    const perm = await ensureGeoPermission();
+    if (perm !== "granted") return;
     setGeoError(null);
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (p) => {
-        const pt: GeoPoint = { lat: p.coords.latitude, lng: p.coords.longitude };
+    geoWatchRef.current = await watchGeo(
+      (raw) => {
+        const pt: GeoPoint = { lat: raw.lat, lng: raw.lng, t: Date.now(), acc: raw.acc };
         currentPosRef.current = pt;
         setGeoOn(true);
-        const now = Date.now();
-        setPath((prev) => {
-          const last = prev[prev.length - 1];
-          const moved = !last || haversine(last, pt) > 4;
-          const timed = now - lastPointAtRef.current > 2500;
-          if (!moved && !timed) return prev;
-          lastPointAtRef.current = now;
-          const next = [...prev, pt];
-          pathRef.current = next;
-          return next;
-        });
+        const prev = rawPathRef.current[rawPathRef.current.length - 1] ?? null;
+        if (!shouldAcceptPoint(prev, pt)) return;
+        rawPathRef.current = [...rawPathRef.current, pt];
+        const smoothed = smoothPath(rawPathRef.current);
+        pathRef.current = smoothed;
+        setPath(smoothed);
       },
-      (err) => { setGeoError(err.message || "تعذر قراءة الموقع"); setGeoOn(false); },
-      { enableHighAccuracy: true, maximumAge: 1500, timeout: 12000 },
+      (msg, code) => {
+        setGeoError(msg);
+        setGeoOn(false);
+        if (code === "denied") setGeoPerm("denied");
+      },
     );
   }
 
   function stopGeoTracking() {
-    if (watchIdRef.current != null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
+    if (geoWatchRef.current) {
+      void geoWatchRef.current.stop();
+      geoWatchRef.current = null;
     }
     setGeoOn(false);
   }
@@ -348,7 +361,7 @@ function RecordPage() {
       setPath([]);
       pathRef.current = [];
       currentPosRef.current = null;
-      lastPointAtRef.current = 0;
+      rawPathRef.current = [];
       setReviewOpen(false);
       setStartedAt(Date.now());
       setElapsed(0);
@@ -499,9 +512,19 @@ function RecordPage() {
 
       {recording && (
         <div className="mb-3 space-y-1.5">
-          <div className="flex items-center justify-between text-[11px]"><span className="inline-flex items-center gap-1 font-bold">{geoOn ? <MapPin className="h-3.5 w-3.5 text-success" /> : <MapPinOff className="h-3.5 w-3.5 text-muted-foreground" />}{geoOn ? "تتبع الموقع مفعّل" : geoError ? "الموقع معطّل" : "بانتظار إشارة GPS..."}</span>{path.length > 0 && <span className="text-muted-foreground tabular-nums">{path.length} نقطة</span>}</div>
-          <TrackingMap path={path} markers={entries.filter((e) => e.latitude != null && e.longitude != null).map((e) => ({ id: e.id, lat: e.latitude!, lng: e.longitude!, label: e.raw, status: e.matchedPlate ? "matched" : e.complete ? "detected" : "incomplete" }))} follow showCar height={200} />
-          {geoError && <p className="text-[10.5px] text-warning">{geoError}</p>}
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="inline-flex items-center gap-1 font-bold">
+              {geoOn ? <MapPin className="h-3.5 w-3.5 text-success" /> : <MapPinOff className="h-3.5 w-3.5 text-muted-foreground" />}
+              {geoOn ? "تتبع الموقع مفعّل" : geoPerm === "denied" ? "الموقع مرفوض" : geoError ? "الموقع معطّل" : "بانتظار إشارة GPS..."}
+            </span>
+            {path.length > 0 && <span className="text-muted-foreground tabular-nums">{path.length} نقطة</span>}
+          </div>
+          {geoPerm === "denied" ? (
+            <GeoDeniedBanner onRetry={() => void startGeoTracking()} />
+          ) : (
+            <TrackingMap path={path} markers={entries.filter((e) => e.latitude != null && e.longitude != null).map((e) => ({ id: e.id, lat: e.latitude!, lng: e.longitude!, label: e.raw, status: e.matchedPlate ? "matched" : e.complete ? "detected" : "incomplete" }))} follow showCar height={200} />
+          )}
+          {geoError && geoPerm !== "denied" && <p className="text-[10.5px] text-warning">{geoError}</p>}
         </div>
       )}
 
@@ -606,13 +629,28 @@ function formatTime(s: number): string {
   return `${m.toString().padStart(2, "0")}:${r.toString().padStart(2, "0")}`;
 }
 
-function haversine(a: GeoPoint, b: GeoPoint): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(s));
+// (haversine is now provided by @/lib/geo)
+
+function GeoDeniedBanner({ onRetry }: { onRetry: () => void }) {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const isAndroid = /Android/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const hint = isAndroid
+    ? "افتح إعدادات الهاتف ← التطبيقات ← PlateCheck ← الأذونات ← الموقع ← السماح دائماً"
+    : isIOS
+      ? "افتح الإعدادات ← الخصوصية والأمان ← خدمات الموقع ← Safari/PlateCheck ← السماح أثناء الاستخدام"
+      : "افتح إعدادات المتصفح للموقع الحالي وفعّل إذن الموقع (Location) ثم اضغط إعادة المحاولة";
+  return (
+    <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3">
+      <div className="mb-1 flex items-center gap-2 text-sm font-black text-destructive">
+        <MapPinOff className="h-4 w-4" /> إذن الموقع مرفوض
+      </div>
+      <p className="mb-2 text-[11px] leading-5 text-muted-foreground">{hint}</p>
+      <button onClick={onRetry} className="inline-flex items-center gap-1 rounded-lg bg-destructive px-3 py-1.5 text-[11px] font-bold text-destructive-foreground">
+        <MapPin className="h-3 w-3" /> إعادة طلب الإذن
+      </button>
+    </div>
+  );
 }
 
 function missingPartsLabel(p: DetectedPlate): string | undefined {
