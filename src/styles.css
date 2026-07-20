@@ -37,59 +37,60 @@
   --font-arabic: "Cairo", "Tajawal", ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Light theme (default) */
+/* Light theme — warm, calm, eye-friendly */
 :root {
-  --radius: 1rem;
-  --background: oklch(0.985 0.005 240);
-  --foreground: oklch(0.18 0.02 260);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.02 260);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.02 260);
-  --primary: oklch(0.55 0.16 200);
-  --primary-foreground: oklch(0.98 0.005 240);
-  --secondary: oklch(0.94 0.01 240);
-  --secondary-foreground: oklch(0.18 0.02 260);
-  --muted: oklch(0.94 0.01 240);
-  --muted-foreground: oklch(0.5 0.02 260);
-  --accent: oklch(0.55 0.16 200);
-  --accent-foreground: oklch(0.98 0.005 240);
-  --success: oklch(0.62 0.17 155);
-  --success-foreground: oklch(0.98 0.005 240);
-  --warning: oklch(0.7 0.17 75);
-  --warning-foreground: oklch(0.18 0.02 260);
-  --destructive: oklch(0.6 0.24 25);
-  --destructive-foreground: oklch(0.98 0.005 240);
-  --border: oklch(0.9 0.01 240);
-  --input: oklch(0.92 0.01 240);
-  --ring: oklch(0.55 0.16 200);
+  --radius: 1.1rem;
+  --background: oklch(0.985 0.008 85);
+  --foreground: oklch(0.24 0.02 250);
+  --card: oklch(0.995 0.004 85);
+  --card-foreground: oklch(0.24 0.02 250);
+  --popover: oklch(0.995 0.004 85);
+  --popover-foreground: oklch(0.24 0.02 250);
+  --primary: oklch(0.58 0.11 210);
+  --primary-foreground: oklch(0.99 0.005 85);
+  --secondary: oklch(0.95 0.012 90);
+  --secondary-foreground: oklch(0.28 0.02 250);
+  --muted: oklch(0.95 0.012 90);
+  --muted-foreground: oklch(0.52 0.02 250);
+  --accent: oklch(0.72 0.09 180);
+  --accent-foreground: oklch(0.2 0.02 250);
+  --success: oklch(0.65 0.13 155);
+  --success-foreground: oklch(0.99 0.005 85);
+  --warning: oklch(0.78 0.14 78);
+  --warning-foreground: oklch(0.24 0.02 250);
+  --destructive: oklch(0.6 0.19 25);
+  --destructive-foreground: oklch(0.99 0.005 85);
+  --border: oklch(0.9 0.012 90);
+  --input: oklch(0.93 0.012 90);
+  --ring: oklch(0.58 0.11 210);
   color-scheme: light;
 }
 
+/* Dark theme — deep midnight, low-glare, calming */
 .dark {
-  --background: oklch(0.16 0.02 260);
-  --foreground: oklch(0.98 0.005 260);
-  --card: oklch(0.21 0.025 260);
-  --card-foreground: oklch(0.98 0.005 260);
-  --popover: oklch(0.22 0.025 260);
-  --popover-foreground: oklch(0.98 0.005 260);
-  --primary: oklch(0.72 0.18 195);
-  --primary-foreground: oklch(0.15 0.02 260);
-  --secondary: oklch(0.28 0.03 260);
-  --secondary-foreground: oklch(0.98 0.005 260);
-  --muted: oklch(0.24 0.02 260);
-  --muted-foreground: oklch(0.7 0.02 260);
-  --accent: oklch(0.72 0.18 195);
-  --accent-foreground: oklch(0.15 0.02 260);
-  --success: oklch(0.78 0.2 155);
-  --success-foreground: oklch(0.15 0.02 260);
-  --warning: oklch(0.82 0.17 85);
-  --warning-foreground: oklch(0.15 0.02 260);
-  --destructive: oklch(0.68 0.24 25);
-  --destructive-foreground: oklch(0.98 0.005 260);
-  --border: oklch(0.3 0.025 260);
-  --input: oklch(0.28 0.025 260);
-  --ring: oklch(0.72 0.18 195);
+  --background: oklch(0.19 0.018 250);
+  --foreground: oklch(0.94 0.01 220);
+  --card: oklch(0.23 0.022 250);
+  --card-foreground: oklch(0.94 0.01 220);
+  --popover: oklch(0.24 0.022 250);
+  --popover-foreground: oklch(0.94 0.01 220);
+  --primary: oklch(0.72 0.12 200);
+  --primary-foreground: oklch(0.16 0.02 250);
+  --secondary: oklch(0.28 0.025 250);
+  --secondary-foreground: oklch(0.94 0.01 220);
+  --muted: oklch(0.26 0.02 250);
+  --muted-foreground: oklch(0.72 0.015 220);
+  --accent: oklch(0.68 0.1 180);
+  --accent-foreground: oklch(0.16 0.02 250);
+  --success: oklch(0.74 0.14 155);
+  --success-foreground: oklch(0.16 0.02 250);
+  --warning: oklch(0.82 0.14 82);
+  --warning-foreground: oklch(0.18 0.02 250);
+  --destructive: oklch(0.68 0.2 25);
+  --destructive-foreground: oklch(0.98 0.005 250);
+  --border: oklch(0.32 0.02 250);
+  --input: oklch(0.28 0.02 250);
+  --ring: oklch(0.72 0.12 200);
   color-scheme: dark;
 }
 
@@ -105,18 +106,19 @@
   }
   .dark body {
     background:
-      radial-gradient(1200px 600px at 80% -10%, oklch(0.35 0.15 200 / 0.35), transparent 60%),
-      radial-gradient(1000px 500px at -10% 110%, oklch(0.35 0.15 300 / 0.3), transparent 60%),
+      radial-gradient(1100px 550px at 85% -12%, oklch(0.4 0.09 200 / 0.28), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, oklch(0.32 0.08 280 / 0.22), transparent 60%),
       var(--color-background);
   }
   :root:not(.dark) body {
     background:
-      radial-gradient(1000px 500px at 90% -10%, oklch(0.85 0.09 200 / 0.5), transparent 60%),
-      radial-gradient(900px 500px at -10% 110%, oklch(0.88 0.07 280 / 0.4), transparent 60%),
+      radial-gradient(1000px 500px at 92% -10%, oklch(0.9 0.06 200 / 0.55), transparent 62%),
+      radial-gradient(900px 500px at -8% 110%, oklch(0.92 0.05 90 / 0.55), transparent 62%),
       var(--color-background);
   }
   input, button, textarea, select { font-family: inherit; }
 }
+
 
 @layer utilities {
   .glass {
