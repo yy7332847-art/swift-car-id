@@ -135,36 +135,74 @@ export function TrackingMap({ path, markers = [], follow = false, showCar = fals
     }
   }, [path, markers, follow, showCar, playbackIndex, focusId, pathColor]);
 
-  // markers (fan out overlapping coords so every plate is visible)
+  // markers (spiderify overlapping coords in pixel space so every plate is visible at any zoom)
   useEffect(() => {
     const Ll = leafletRef.current;
+    const map = mapRef.current;
     const layer = markerLayerRef.current;
-    if (!Ll || !layer) return;
-    layer.clearLayers();
-    markerRefs.current.clear();
-    const groups = new Map<string, number>();
-    const keyOf = (lat: number, lng: number) => `${lat.toFixed(5)}:${lng.toFixed(5)}`;
-    for (const m of markers) {
-      const k = keyOf(m.lat, m.lng);
-      const idx = groups.get(k) ?? 0;
-      let lat = m.lat;
-      let lng = m.lng;
-      if (idx > 0) {
-        const ring = Math.ceil(idx / 8);
-        const posInRing = (idx - 1) % 8;
-        const angle = (posInRing / 8) * Math.PI * 2;
-        const rMeters = 3 * ring;
-        const dLat = (rMeters / 111320) * Math.cos(angle);
-        const dLng = (rMeters / (111320 * Math.cos((lat * Math.PI) / 180))) * Math.sin(angle);
-        lat += dLat;
-        lng += dLng;
+    if (!Ll || !map || !layer) return;
+
+    const render = () => {
+      layer.clearLayers();
+      markerRefs.current.clear();
+
+      const keyOf = (lat: number, lng: number) => `${lat.toFixed(5)}:${lng.toFixed(5)}`;
+      const groups = new Map<string, PlateMarker[]>();
+      for (const m of markers) {
+        const k = keyOf(m.lat, m.lng);
+        const arr = groups.get(k) ?? [];
+        arr.push(m);
+        groups.set(k, arr);
       }
-      groups.set(k, idx + 1);
-      const marker = Ll.marker([lat, lng], { icon: plateIcon(Ll, m.status, m.label, focusId === m.id) });
-      if (onMarkerClick) marker.on("click", () => onMarkerClick(m.id));
-      marker.addTo(layer);
-      markerRefs.current.set(m.id, marker);
-    }
+
+      for (const [, arr] of groups) {
+        if (arr.length === 1) {
+          const m = arr[0];
+          const marker = Ll.marker([m.lat, m.lng], { icon: plateIcon(Ll, m.status, m.label, focusId === m.id) });
+          if (onMarkerClick) marker.on("click", () => onMarkerClick(m.id));
+          marker.addTo(layer);
+          markerRefs.current.set(m.id, marker);
+          continue;
+        }
+        // spiderify: fan out in pixel space around the shared center
+        const center = arr[0];
+        const centerPt = map.latLngToLayerPoint([center.lat, center.lng]);
+        const n = arr.length;
+        const radius = Math.max(48, 24 + n * 8);
+
+        // center dot marking the true shared location
+        const dotIcon = Ll.divIcon({
+          className: "",
+          html: `<div style="width:10px;height:10px;border-radius:999px;background:#2563eb;border:2px solid #fff;box-shadow:0 0 0 2px rgba(37,99,235,.35);transform:translate(-50%,-50%)"></div>`,
+          iconSize: [10, 10],
+        });
+        Ll.marker([center.lat, center.lng], { icon: dotIcon, interactive: false, keyboard: false }).addTo(layer);
+
+        arr.forEach((m, i) => {
+          const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+          const px = centerPt.x + Math.cos(angle) * radius;
+          const py = centerPt.y + Math.sin(angle) * radius;
+          const ll = map.layerPointToLatLng([px, py]);
+
+          Ll.polyline([[center.lat, center.lng], [ll.lat, ll.lng]], {
+            color: "#2563eb",
+            weight: 1.5,
+            opacity: 0.7,
+            dashArray: "3,3",
+            interactive: false,
+          }).addTo(layer);
+
+          const marker = Ll.marker([ll.lat, ll.lng], { icon: plateIcon(Ll, m.status, m.label, focusId === m.id) });
+          if (onMarkerClick) marker.on("click", () => onMarkerClick(m.id));
+          marker.addTo(layer);
+          markerRefs.current.set(m.id, marker);
+        });
+      }
+    };
+
+    render();
+    map.on("zoomend", render);
+    return () => { map.off("zoomend", render); };
   }, [markers, onMarkerClick, focusId]);
 
   // focus zoom
