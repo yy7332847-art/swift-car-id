@@ -239,6 +239,7 @@ function RecordPage() {
       setStartedAt(draft.startedAt);
       setElapsed(Math.floor((Date.now() - draft.startedAt) / 1000));
       setTranscript(draft.transcript ?? "");
+      setLiveText(draft.transcript?.slice(-140) ?? "");
       setPath(draft.path ?? []);
       pathRef.current = draft.path ?? [];
       applyEntries(draft.entries ?? []);
@@ -495,6 +496,7 @@ function RecordPage() {
       setSavedSessionId(null);
       applyEntries([]);
       setTranscript("");
+      setLiveText("");
       setPath([]);
       pathRef.current = [];
       currentPosRef.current = null;
@@ -510,6 +512,7 @@ function RecordPage() {
 
   async function stopRecording() {
     setRecording(false);
+    stopInstantSpeech();
     await recorderRef.current?.stop();
     recorderRef.current = null;
     stopGeoTracking();
@@ -575,6 +578,7 @@ function RecordPage() {
       setSavedSessionId(saved.id);
       setSessionId(null);
       sessionIdRef.current = null;
+      stopInstantSpeech();
       setReviewOpen(false);
       setStartedAt(null);
       toast.success(`تم حفظ الجلسة — ${current.length} لوحة، ${matched} مطابقة`);
@@ -590,9 +594,11 @@ function RecordPage() {
     localStorage.removeItem(DRAFT_KEY);
     sessionIdRef.current = null;
     setSessionId(null);
+    stopInstantSpeech();
     setStartedAt(null);
     setReviewOpen(false);
     setTranscript("");
+    setLiveText("");
     applyEntries([]);
     setPath([]);
     pathRef.current = [];
@@ -617,7 +623,7 @@ function RecordPage() {
     doc.save(`current-session-${Date.now()}.pdf`);
   }
 
-  useEffect(() => () => { void recorderRef.current?.stop(); stopGeoTracking(); }, []);
+  useEffect(() => () => { stopInstantSpeech(); void recorderRef.current?.stop(); stopGeoTracking(); }, []);
 
   const notActive = sub && !sub.active && !admin;
 
@@ -645,7 +651,7 @@ function RecordPage() {
         {!recording && !reviewOpen && <button onClick={() => setCalibrating(true)} disabled={!!notActive} className="mt-3 inline-flex items-center gap-1 rounded-full bg-muted/60 px-3 py-1.5 text-xs font-bold disabled:opacity-40"><Settings2 className="h-3 w-3" /> معايرة الميكروفون</button>}
       </div>
 
-      {recording && <LiveStatusBar processing={processing} transcript={transcript} lastCapture={lastCapture} level={level} />}
+      {recording && <LiveStatusBar processing={processing} transcript={liveText || transcript} lastCapture={lastCapture} level={level} />}
 
       {recording && (
         <div className="mb-3 space-y-1.5">
