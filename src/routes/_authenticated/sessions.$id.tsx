@@ -217,6 +217,12 @@ function SessionDetailPage() {
   const totalMatched = detected?.filter((d) => d.is_matched).length ?? 0;
   const totalInc = detected?.filter((d) => d.is_incomplete).length ?? 0;
   const totalUnknown = totalDet - totalMatched - totalInc;
+  const duplicates = detected?.filter((d) => d.duplicate_of_id && d.duplicate_decision === "same") ?? [];
+  const unresolvedDups = detected?.filter((d) => d.duplicate_of_id && d.duplicate_decision !== "same" && d.duplicate_decision !== "different") ?? [];
+  const totalDuplicates = (session as { total_duplicates?: number | null } | null)?.total_duplicates ?? duplicates.length;
+  const totalUnique = (session as { total_unique?: number | null } | null)?.total_unique ?? Math.max(totalDet - duplicates.length, 0);
+  const dupRows = [...duplicates, ...unresolvedDups];
+  const origById = new Map(detected?.map((d) => [d.id, d]) ?? []);
 
   return (
     <div className="px-5 pt-8">
@@ -226,11 +232,22 @@ function SessionDetailPage() {
       <h1 className="mb-1 text-xl font-black">تقرير الجلسة</h1>
       <p className="mb-4 text-xs text-muted-foreground">{new Date(session.started_at).toLocaleString("ar-EG")}</p>
 
-      <div className="mb-4 grid grid-cols-4 gap-2">
+      <div className="mb-3 grid grid-cols-4 gap-2">
         <StatCard label="مكتشفة" value={totalDet} active={filter === "all"} onClick={() => setFilter("all")} />
         <StatCard label="مطابقة" value={totalMatched} tone="success" active={filter === "matched"} onClick={() => setFilter("matched")} />
         <StatCard label="غير مكتملة" value={totalInc} tone="warning" active={filter === "incomplete"} onClick={() => setFilter("incomplete")} />
         <StatCard label="غير موجودة" value={totalUnknown} tone="muted" active={filter === "unknown"} onClick={() => setFilter("unknown")} />
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="glass rounded-xl border border-primary/40 p-3 text-center">
+          <p className="text-2xl font-black tabular-nums text-primary">{totalUnique}</p>
+          <p className="text-[10.5px] font-bold text-muted-foreground">سيارات فريدة (بعد الدمج)</p>
+        </div>
+        <div className="glass rounded-xl border border-warning/40 p-3 text-center">
+          <p className="text-2xl font-black tabular-nums text-warning">{totalDuplicates}</p>
+          <p className="text-[10.5px] font-bold text-muted-foreground">تكرارات مدموجة</p>
+        </div>
       </div>
 
       {(path.length > 0 || markers.length > 0) && (
