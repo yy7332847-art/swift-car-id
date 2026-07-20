@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_audit_log: {
+        Row: {
+          action: string
+          admin_id: string
+          created_at: string
+          details: Json
+          id: string
+          target_user_id: string | null
+        }
+        Insert: {
+          action: string
+          admin_id: string
+          created_at?: string
+          details?: Json
+          id?: string
+          target_user_id?: string | null
+        }
+        Update: {
+          action?: string
+          admin_id?: string
+          created_at?: string
+          details?: Json
+          id?: string
+          target_user_id?: string | null
+        }
+        Relationships: []
+      }
       detected_plates: {
         Row: {
           accuracy: number | null
@@ -323,6 +350,45 @@ export type Database = {
           total_detected?: number
           total_incomplete?: number
           total_matched?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      subscription_history: {
+        Row: {
+          created_at: string
+          ended_at: string | null
+          expires_at: string | null
+          id: string
+          package_id: string | null
+          package_name: string | null
+          reason: string | null
+          started_at: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          ended_at?: string | null
+          expires_at?: string | null
+          id?: string
+          package_id?: string | null
+          package_name?: string | null
+          reason?: string | null
+          started_at?: string
+          status: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          ended_at?: string | null
+          expires_at?: string | null
+          id?: string
+          package_id?: string | null
+          package_name?: string | null
+          reason?: string | null
+          started_at?: string
+          status?: string
           user_id?: string
         }
         Relationships: []

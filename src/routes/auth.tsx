@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { motion } from "motion/react";
 import { Loader2, Car, ScanLine } from "lucide-react";
+import { SignupCelebration } from "@/components/SignupCelebration";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -17,6 +18,7 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -38,8 +40,7 @@ function AuthPage() {
           },
         });
         if (error) throw error;
-        toast.success("تم إنشاء الحساب بنجاح");
-        navigate({ to: "/home" });
+        setCelebrate(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -102,6 +103,7 @@ function AuthPage() {
           </p>
         )}
       </motion.div>
+      {celebrate && <SignupCelebration userName={fullName} onDone={() => { setCelebrate(false); navigate({ to: "/home" }); }} />}
     </div>
   );
 }
