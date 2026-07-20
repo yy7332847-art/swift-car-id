@@ -711,13 +711,33 @@ function RecordPage() {
       {!recording && savedSessionId && entries.length > 0 && <Link to="/sessions/$id" params={{ id: savedSessionId }} className="mb-3 block rounded-2xl bg-primary p-3 text-center text-sm font-bold text-primary-foreground">عرض تقرير الجلسة</Link>}
 
       <div className="flex-1 space-y-2 pb-4">
-        <AnimatePresence initial={false}>{entries.slice(0, 80).map((e) => <PlateCard key={e.id} entry={e} />)}</AnimatePresence>
+        <AnimatePresence initial={false}>{entries.slice(0, 80).map((e) => <PlateCard key={e.id} entry={e} allEntries={entries} onReopenDuplicate={(entry) => {
+          if (!entry.duplicateOfId) return;
+          const original = entries.find((x) => x.id === entry.duplicateOfId);
+          if (!original) return;
+          setDuplicatePrompt({ entryId: entry.id, original, match: { kind: "prompt", original: { id: original.id, normalized: original.normalized, spokenAt: original.spokenAt, latitude: original.latitude, longitude: original.longitude }, distanceMeters: entry.duplicateDistanceM ?? null, gapSeconds: entry.duplicateGapSec ?? 0, reason: "same-window" } });
+        }} />)}</AnimatePresence>
         {entries.length > 80 && <p className="text-center text-[10px] text-muted-foreground">عرض أحدث 80 لوحة — الكل يظهر في تقرير الجلسة</p>}
         {entries.length === 0 && !recording && <div className="rounded-2xl bg-muted/30 p-6 text-center text-sm text-muted-foreground"><Info className="mx-auto mb-2 h-6 w-6" />اضغط زر الميكروفون وابدأ بنطق أرقام اللوحات</div>}
       </div>
 
       <AnimatePresence>{calibrating && <CalibrationSheet onClose={() => setCalibrating(false)} />}</AnimatePresence>
       <AnimatePresence>{preflightOpen && <GeoPreflightSheet loading={preflightLoading} result={preflight} onCancel={() => setPreflightOpen(false)} onContinue={confirmAndStart} onRetry={async () => { setPreflightLoading(true); try { setPreflight(await runGeoPreflight()); } finally { setPreflightLoading(false); } }} />}</AnimatePresence>
+      <AnimatePresence>
+        {duplicatePrompt && (
+          <DuplicatePromptSheet
+            entry={entriesRef.current.find((e) => e.id === duplicatePrompt.entryId) ?? null}
+            original={duplicatePrompt.original}
+            match={duplicatePrompt.match}
+            onClose={() => setDuplicatePrompt(null)}
+            onDecide={(decision) => {
+              applyEntries(entriesRef.current.map((e) => e.id === duplicatePrompt.entryId ? { ...e, duplicateDecision: decision, duplicateOfId: decision === "different" ? null : e.duplicateOfId } : e));
+              setDuplicatePrompt(null);
+              toast(decision === "same" ? "تم دمجها كتكرار" : "تم تأكيدها كسيارة مختلفة");
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
