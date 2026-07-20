@@ -113,6 +113,8 @@ export function MobileShell({ children }: { children: ReactNode }) {
             <RotateCw className="h-4 w-4" />
           </button>
 
+          <ConnectivityIndicator />
+
           <button
             onClick={handleToggle}
             aria-label="تبديل الوضع"
