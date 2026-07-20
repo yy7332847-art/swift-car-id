@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { motion } from "motion/react";
-import { Upload, Mic, ListChecks, Clock, Database, TrendingUp, ShieldAlert } from "lucide-react";
+import { Upload, Mic, ListChecks, Clock, Database, TrendingUp, ShieldAlert, Table } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/home")({
   component: HomePage,
@@ -77,6 +77,7 @@ function HomePage() {
       <div className="grid grid-cols-2 gap-3">
         <ActionCard to="/record" icon={Mic} title="ابدأ التسجيل" desc="تعرّف صوتي فوري" primary />
         <ActionCard to="/upload" icon={Upload} title="رفع ملف Excel" desc="حدّث قاعدة اللوحات" />
+        <ActionCard to="/plates" icon={Table} title="جدول اللوحات" desc="بحث + سجل الفحص لكل لوحة" />
         <ActionCard to="/sessions" icon={ListChecks} title="الجلسات السابقة" desc="التقارير والسجل" />
         {admin && <ActionCard to="/admin" icon={ShieldAlert} title="لوحة الإدارة" desc="المستخدمون والاشتراكات" />}
       </div>

@@ -17,6 +17,7 @@ import { Route as AuthenticatedUploadRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedStatusRouteImport } from './routes/_authenticated/status'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedRecordRouteImport } from './routes/_authenticated/record'
+import { Route as AuthenticatedPlatesRouteImport } from './routes/_authenticated/plates'
 import { Route as AuthenticatedPackagesRouteImport } from './routes/_authenticated/packages'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedHeatmapRouteImport } from './routes/_authenticated/heatmap'
@@ -63,6 +64,11 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
 const AuthenticatedRecordRoute = AuthenticatedRecordRouteImport.update({
   id: '/record',
   path: '/record',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPlatesRoute = AuthenticatedPlatesRouteImport.update({
+  id: '/plates',
+  path: '/plates',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedPackagesRoute = AuthenticatedPackagesRouteImport.update({
@@ -115,6 +121,7 @@ export interface FileRoutesByFullPath {
   '/heatmap': typeof AuthenticatedHeatmapRoute
   '/home': typeof AuthenticatedHomeRoute
   '/packages': typeof AuthenticatedPackagesRoute
+  '/plates': typeof AuthenticatedPlatesRoute
   '/record': typeof AuthenticatedRecordRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/status': typeof AuthenticatedStatusRoute
@@ -132,6 +139,7 @@ export interface FileRoutesByTo {
   '/heatmap': typeof AuthenticatedHeatmapRoute
   '/home': typeof AuthenticatedHomeRoute
   '/packages': typeof AuthenticatedPackagesRoute
+  '/plates': typeof AuthenticatedPlatesRoute
   '/record': typeof AuthenticatedRecordRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/status': typeof AuthenticatedStatusRoute
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/_authenticated/heatmap': typeof AuthenticatedHeatmapRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/packages': typeof AuthenticatedPackagesRoute
+  '/_authenticated/plates': typeof AuthenticatedPlatesRoute
   '/_authenticated/record': typeof AuthenticatedRecordRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/status': typeof AuthenticatedStatusRoute
@@ -170,6 +179,7 @@ export interface FileRouteTypes {
     | '/heatmap'
     | '/home'
     | '/packages'
+    | '/plates'
     | '/record'
     | '/settings'
     | '/status'
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | '/heatmap'
     | '/home'
     | '/packages'
+    | '/plates'
     | '/record'
     | '/settings'
     | '/status'
@@ -205,6 +216,7 @@ export interface FileRouteTypes {
     | '/_authenticated/heatmap'
     | '/_authenticated/home'
     | '/_authenticated/packages'
+    | '/_authenticated/plates'
     | '/_authenticated/record'
     | '/_authenticated/settings'
     | '/_authenticated/status'
@@ -281,6 +293,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRecordRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/plates': {
+      id: '/_authenticated/plates'
+      path: '/plates'
+      fullPath: '/plates'
+      preLoaderRoute: typeof AuthenticatedPlatesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/packages': {
       id: '/_authenticated/packages'
       path: '/packages'
@@ -346,6 +365,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedHeatmapRoute: typeof AuthenticatedHeatmapRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedPackagesRoute: typeof AuthenticatedPackagesRoute
+  AuthenticatedPlatesRoute: typeof AuthenticatedPlatesRoute
   AuthenticatedRecordRoute: typeof AuthenticatedRecordRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedStatusRoute: typeof AuthenticatedStatusRoute
@@ -360,6 +380,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedHeatmapRoute: AuthenticatedHeatmapRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedPackagesRoute: AuthenticatedPackagesRoute,
+  AuthenticatedPlatesRoute: AuthenticatedPlatesRoute,
   AuthenticatedRecordRoute: AuthenticatedRecordRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedStatusRoute: AuthenticatedStatusRoute,
