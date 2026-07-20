@@ -123,6 +123,7 @@ function RecordPage() {
   const lastPointAtRef = useRef(0);
   const pathRef = useRef<GeoPoint[]>([]);
   const recorderRef = useRef<RecorderHandle | null>(null);
+  const processChunkRef = useRef<(wav: Blob) => void>(() => undefined);
   const pendingRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
   const entriesRef = useRef<PlateEntry[]>([]);
@@ -151,7 +152,7 @@ function RecordPage() {
       overlapSeconds: 0.85,
       targetSampleRate: 16000,
       onLevel: setLevel,
-      onChunk: (wav) => void processChunk(wav),
+      onChunk: (wav) => processChunkRef.current(wav),
     });
     setRecording(true);
   }, []);
@@ -286,6 +287,10 @@ function RecordPage() {
       if (pendingRef.current === 0) setProcessing(false);
     }
   }, [applyEntries, platesIndex]);
+
+  useEffect(() => {
+    processChunkRef.current = (wav: Blob) => { void processChunk(wav); };
+  }, [processChunk]);
 
   function startGeoTracking() {
     if (watchIdRef.current != null) return;
