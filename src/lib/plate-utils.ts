@@ -84,6 +84,20 @@ function parseNaturalNumber(words: string[], start: number): { value: string; co
 }
 
 function parseArabicNumberRun(words: string[], startIdx: number): { value: string; consumed: number; suspectPart?: string; correctionNote?: string } {
+  const repairPlateZero = (value: string, suspectPart?: string): { value: string; suspectPart?: string; correctionNote?: string } => {
+    const fixed = value
+      .replace(/^([6])0\1\1$/, "$1$1$1$1")
+      .replace(/^([6])0\1$/, "$1$1$1");
+    if (fixed !== value) {
+      return {
+        value: fixed,
+        suspectPart,
+        correctionNote: "تم تصحيح التباس نطق الستينات داخل رقم اللوحة",
+      };
+    }
+    return { value, suspectPart };
+  };
+
   let directSeq = "", directConsumed = 0;
   for (let i = startIdx; i < words.length && directSeq.length < 4; i++) {
     const d = directDigits(words[i] ?? "");
@@ -114,7 +128,10 @@ function parseArabicNumberRun(words: string[], startIdx: number): { value: strin
     groups.push(g.value.toString().padStart(groups.length ? 2 : 1, "0"));
     i += g.consumed; groupConsumed += g.consumed;
   }
-  if (groups.length >= 2) candidates.push({ value: groups.join("").slice(0, 4), consumed: groupConsumed });
+  if (groups.length >= 2) {
+    const raw = groups.join("").slice(0, 4);
+    candidates.push({ ...repairPlateZero(raw, words.slice(startIdx, startIdx + groupConsumed).join(" ")), consumed: groupConsumed });
+  }
 
   // Strategy C: natural number ("اربعة الاف ومئتين واثنين")
   const nat = parseNaturalNumber(words, startIdx);
