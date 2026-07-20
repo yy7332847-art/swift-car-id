@@ -28,8 +28,8 @@ export const Route = createFileRoute("/api/transcribe")({
         upstream.append("file", audio as Blob, name);
         upstream.append("language", "ar");
         upstream.append("temperature", "0");
-        // Neutral prompt: no example plates (they cause the model to echo phantom plates).
-        upstream.append("prompt", "نطق حروف عربية منفصلة ثم أرقام. اكتب فقط ما يُنطق فعلاً بدون إضافة أي كلمات أو أمثلة، وإن لم يوجد صوت واضح فلا تكتب شيئاً.");
+        // Raw dictation only: no inferred plates and no filler phrases.
+        upstream.append("prompt", "اكتب النص العربي الخام المسموع فقط كما هو، خصوصاً حروف وأرقام اللوحات. لا تضف أمثلة، لا تكمل لوحة ناقصة، لا تكتب تحية أو كلاماً غير مسموع، وإذا الصوت غير واضح أعد نصاً فارغاً.");
 
         try {
           const res = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
