@@ -5,10 +5,12 @@ import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, FileText, Save, Trash2 } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap, type GeoPoint } from "@/components/TrackingMap";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 
 export const Route = createFileRoute("/_authenticated/record")({
@@ -18,6 +20,9 @@ export const Route = createFileRoute("/_authenticated/record")({
 interface PlateEntry extends DetectedPlate {
   id: string;
   spokenAt: number;
+  spokenText: string;
+  matchedPlateId?: string | null;
+  closestPlate?: { raw: string; score: number } | null;
   latitude?: number | null;
   longitude?: number | null;
   matchedPlate?: {
@@ -27,6 +32,19 @@ interface PlateEntry extends DetectedPlate {
     chassis: string | null;
     plate_date: string | null;
   };
+}
+
+const DRAFT_KEY = "platecheck.active-recording-draft.v3";
+
+interface DraftSession {
+  draftId: string;
+  userId: string;
+  startedAt: number;
+  entries: PlateEntry[];
+  transcript: string;
+  path: GeoPoint[];
+  wasRecording: boolean;
+  reviewOpen?: boolean;
 }
 
 function RecordPage() {
