@@ -16,6 +16,7 @@ export interface PendingSession {
   created_at: number;
   attempts: number;
   last_error?: string;
+  next_retry_at?: number;
 }
 
 export interface PendingPlate {
@@ -26,6 +27,7 @@ export interface PendingPlate {
   created_at: number;
   attempts: number;
   last_error?: string;
+  next_retry_at?: number;
 }
 
 export interface CachedPlate {
