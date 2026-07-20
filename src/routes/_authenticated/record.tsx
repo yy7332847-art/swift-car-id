@@ -476,6 +476,7 @@ function RecordPage() {
       applyEntries([]);
       setTranscript("");
       setLiveText("");
+      lastInstantTextRef.current = "";
       setPath([]);
       pathRef.current = [];
       currentPosRef.current = null;
