@@ -64,12 +64,12 @@ async function refreshCounts() {
   }
 }
 
-export async function syncNow(): Promise<{ pushed: number; failed: number }> {
-  if (state.syncing) return { pushed: 0, failed: 0 };
+export async function syncNow(): Promise<{ pushed: number; failed: number; deferred: number }> {
+  if (state.syncing) return { pushed: 0, failed: 0, deferred: 0 };
   if (!(typeof navigator === "undefined" ? true : navigator.onLine)) {
     state.online = false;
     notify();
-    return { pushed: 0, failed: 0 };
+    return { pushed: 0, failed: 0, deferred: 0 };
   }
   state.syncing = true;
   state.lastError = null;
@@ -77,15 +77,16 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
 
   let pushed = 0;
   let failed = 0;
+  let deferred = 0;
+  const now = Date.now();
 
   try {
     const sessions = await listPendingSessions();
-    // Map from a session's client_id → server-assigned session id.
     const sessionServerIds = new Map<string, string>();
 
     for (const s of sessions) {
+      if ((s.next_retry_at ?? 0) > now) { deferred += 1; continue; }
       try {
-        // Upsert by (user_id, client_id) unique index.
         const { data, error } = await supabase
           .from("recognition_sessions")
           .upsert({ ...s.payload, client_id: s.client_id, user_id: s.user_id } as unknown as never, { onConflict: "user_id,client_id" })
@@ -94,10 +95,10 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
         if (error || !data) throw error ?? new Error("upsert failed");
         sessionServerIds.set(s.client_id, data.id as string);
 
-        // Push all plates linked to this session in one batch.
         const plates = await listPendingPlatesFor(s.client_id);
-        if (plates.length > 0) {
-          const rows = plates.map((p) => ({
+        const ready = plates.filter((p) => (p.next_retry_at ?? 0) <= now);
+        if (ready.length > 0) {
+          const rows = ready.map((p) => ({
             ...p.payload,
             session_id: data.id,
             user_id: p.user_id,
@@ -107,10 +108,16 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
             .from("detected_plates")
             .upsert(rows as unknown as never, { onConflict: "user_id,client_id" });
           if (pErr) throw pErr;
-          await deletePlatesFor(s.client_id);
-          pushed += plates.length;
+          for (const p of ready) await deletePlate(p.client_id);
+          pushed += ready.length;
         }
-        await deleteSession(s.client_id);
+        // Only remove the session record when no plates remain linked to it.
+        const remaining = await listPendingPlatesFor(s.client_id);
+        if (remaining.length === 0) {
+          await deleteSession(s.client_id);
+        } else {
+          deferred += remaining.length;
+        }
         pushed += 1;
       } catch (err) {
         failed += 1;
@@ -118,12 +125,13 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
       }
     }
 
-    // Orphan plates: session was already saved server-side but plates weren't (e.g. partial success).
-    // Their payload should already carry a valid session_id.
-    const orphanPlates = (await listAllPendingPlates()).filter((p) => !sessions.find((s) => s.client_id === p.session_client_id));
+    // Orphan plates: session was already saved server-side previously.
+    const allPlates = await listAllPendingPlates();
+    const orphanPlates = allPlates.filter((p) => !sessions.find((s) => s.client_id === p.session_client_id));
     if (orphanPlates.length > 0) {
       const bySession = new Map<string, typeof orphanPlates>();
       for (const p of orphanPlates) {
+        if ((p.next_retry_at ?? 0) > now) { deferred += 1; continue; }
         const key = String(p.payload.session_id ?? "");
         if (!key) { await deletePlate(p.client_id); continue; }
         const arr = bySession.get(key) ?? [];
@@ -154,8 +162,9 @@ export async function syncNow(): Promise<{ pushed: number; failed: number }> {
     state.syncing = false;
     await refreshCounts();
     notify();
+    scheduleNextRun();
   }
-  return { pushed, failed };
+  return { pushed, failed, deferred };
 }
 
 /** Snapshot the user's plate DB to IndexedDB for offline matching. */
