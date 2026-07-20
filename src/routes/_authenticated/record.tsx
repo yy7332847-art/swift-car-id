@@ -106,7 +106,20 @@ function RecordPage() {
       if (!sid) return;
 
       const now = Date.now();
-      const inserts: Array<Record<string, unknown>> = [];
+      const inserts: Array<{
+        session_id: string;
+        user_id: string;
+        spoken_text: string;
+        plate_raw: string;
+        plate_normalized: string;
+        is_matched: boolean;
+        is_incomplete: boolean;
+        matched_plate_id: string | null;
+        confidence: number;
+        suspect_part: string | null;
+        correction_note: string | null;
+      }> = [];
+
       const newEntries: PlateEntry[] = [];
 
       for (const p of plates) {
