@@ -16,12 +16,15 @@ export type Database = {
     Tables: {
       detected_plates: {
         Row: {
+          accuracy: number | null
           confidence: number | null
           correction_note: string | null
           detected_at: string
           id: string
           is_incomplete: boolean
           is_matched: boolean
+          latitude: number | null
+          longitude: number | null
           matched_plate_id: string | null
           plate_normalized: string | null
           plate_raw: string | null
@@ -31,12 +34,15 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          accuracy?: number | null
           confidence?: number | null
           correction_note?: string | null
           detected_at?: string
           id?: string
           is_incomplete?: boolean
           is_matched?: boolean
+          latitude?: number | null
+          longitude?: number | null
           matched_plate_id?: string | null
           plate_normalized?: string | null
           plate_raw?: string | null
@@ -46,12 +52,15 @@ export type Database = {
           user_id: string
         }
         Update: {
+          accuracy?: number | null
           confidence?: number | null
           correction_note?: string | null
           detected_at?: string
           id?: string
           is_incomplete?: boolean
           is_matched?: boolean
+          latitude?: number | null
+          longitude?: number | null
           matched_plate_id?: string | null
           plate_normalized?: string | null
           plate_raw?: string | null
@@ -186,6 +195,9 @@ export type Database = {
           ended_at: string | null
           id: string
           notes: string | null
+          path: Json
+          start_latitude: number | null
+          start_longitude: number | null
           started_at: string
           total_detected: number
           total_incomplete: number
@@ -196,6 +208,9 @@ export type Database = {
           ended_at?: string | null
           id?: string
           notes?: string | null
+          path?: Json
+          start_latitude?: number | null
+          start_longitude?: number | null
           started_at?: string
           total_detected?: number
           total_incomplete?: number
@@ -206,6 +221,9 @@ export type Database = {
           ended_at?: string | null
           id?: string
           notes?: string | null
+          path?: Json
+          start_latitude?: number | null
+          start_longitude?: number | null
           started_at?: string
           total_detected?: number
           total_incomplete?: number

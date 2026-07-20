@@ -5,9 +5,10 @@ import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
+import { TrackingMap, type GeoPoint } from "@/components/TrackingMap";
 
 
 export const Route = createFileRoute("/_authenticated/record")({
@@ -17,6 +18,8 @@ export const Route = createFileRoute("/_authenticated/record")({
 interface PlateEntry extends DetectedPlate {
   id: string;
   spokenAt: number;
+  latitude?: number | null;
+  longitude?: number | null;
   matchedPlate?: {
     plate_raw: string;
     bank: string | null;
@@ -67,6 +70,14 @@ function RecordPage() {
   const [elapsed, setElapsed] = useState(0);
   // Transient "just captured" state — drives the live status pill.
   const [lastCapture, setLastCapture] = useState<{ raw: string; complete: boolean; matched: boolean; at: number } | null>(null);
+
+  // Geolocation tracking
+  const [geoOn, setGeoOn] = useState(false);
+  const [geoError, setGeoError] = useState<string | null>(null);
+  const [path, setPath] = useState<GeoPoint[]>([]);
+  const currentPosRef = useRef<GeoPoint | null>(null);
+  const watchIdRef = useRef<number | null>(null);
+  const lastPointAtRef = useRef(0);
 
 
   const recorderRef = useRef<RecorderHandle | null>(null);
@@ -157,6 +168,7 @@ function RecordPage() {
 
         if (finalizedRef.current.has(key)) continue;
 
+        const pos = currentPosRef.current;
         const insertRow = {
           session_id: sid,
           user_id: sess.session!.user.id,
@@ -169,6 +181,8 @@ function RecordPage() {
           confidence: p.confidence,
           suspect_part: p.suspectPart ?? null,
           correction_note: p.correctionNote ?? null,
+          latitude: pos?.lat ?? null,
+          longitude: pos?.lng ?? null,
         };
         const { data: inserted, error } = await supabase.from("detected_plates").insert(insertRow).select("id").single();
         if (error || !inserted) { console.error("insert detected_plates", error); continue; }
@@ -178,6 +192,8 @@ function RecordPage() {
           ...p,
           id: entryId,
           spokenAt: now,
+          latitude: pos?.lat ?? null,
+          longitude: pos?.lng ?? null,
           matchedPlate: isMatched ? { plate_raw: match!.plate_raw, bank: match!.bank, car_type: match!.car_type, chassis: match!.chassis, plate_date: match!.plate_date } : undefined,
         };
         setEntries((prev) => [entry, ...prev].slice(0, 500));
@@ -201,6 +217,44 @@ function RecordPage() {
     }
   }, [platesIndex]);
 
+  function startGeoTracking() {
+    if (!("geolocation" in navigator)) {
+      setGeoError("الموقع الجغرافي غير مدعوم على هذا الجهاز");
+      return;
+    }
+    setGeoError(null);
+    const id = navigator.geolocation.watchPosition(
+      (p) => {
+        const pt: GeoPoint = { lat: p.coords.latitude, lng: p.coords.longitude };
+        currentPosRef.current = pt;
+        setGeoOn(true);
+        const now = Date.now();
+        setPath((prev) => {
+          const last = prev[prev.length - 1];
+          const moved = !last || haversine(last, pt) > 4; // >4m
+          const timed = now - lastPointAtRef.current > 2500;
+          if (!moved && !timed) return prev;
+          lastPointAtRef.current = now;
+          return [...prev, pt];
+        });
+      },
+      (err) => {
+        setGeoError(err.message || "تعذر قراءة الموقع");
+        setGeoOn(false);
+      },
+      { enableHighAccuracy: true, maximumAge: 1500, timeout: 12000 },
+    );
+    watchIdRef.current = id;
+  }
+
+  function stopGeoTracking() {
+    if (watchIdRef.current != null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setGeoOn(false);
+  }
+
   async function beginSession() {
     if (!platesIndex || platesIndex.count === 0) {
       toast.warning("قم برفع ملف Excel أولاً");
@@ -221,8 +275,12 @@ function RecordPage() {
       setSessionId(session.id);
       setEntries([]);
       setTranscript("");
+      setPath([]);
+      currentPosRef.current = null;
+      lastPointAtRef.current = 0;
       setStartedAt(Date.now());
       setElapsed(0);
+      startGeoTracking();
 
       recorderRef.current = await startRecorder({
         chunkSeconds: 1.4,
@@ -242,6 +300,7 @@ function RecordPage() {
     setRecording(false);
     await recorderRef.current?.stop();
     recorderRef.current = null;
+    stopGeoTracking();
     // Wait briefly for any in-flight chunk to complete before summarizing.
     const waitStart = Date.now();
     while (pendingRef.current > 0 && Date.now() - waitStart < 8000) {
@@ -251,11 +310,15 @@ function RecordPage() {
     if (sid) {
       const matched = entries.filter((e) => e.matchedPlate).length;
       const incomplete = entries.filter((e) => !e.complete).length;
+      const first = path[0];
       await supabase.from("recognition_sessions").update({
         ended_at: new Date().toISOString(),
         total_detected: entries.length,
         total_matched: matched,
         total_incomplete: incomplete,
+        path: path as unknown as never,
+        start_latitude: first?.lat ?? null,
+        start_longitude: first?.lng ?? null,
       }).eq("id", sid);
       toast.success(`تم حفظ الجلسة — ${entries.length} لوحة، ${matched} مطابقة`);
       if (incomplete > 0) {
@@ -267,7 +330,7 @@ function RecordPage() {
   }
 
 
-  useEffect(() => () => { void recorderRef.current?.stop(); }, []);
+  useEffect(() => () => { void recorderRef.current?.stop(); stopGeoTracking(); }, []);
 
   const notActive = sub && !sub.active && !admin;
 
@@ -321,6 +384,29 @@ function RecordPage() {
           lastCapture={lastCapture}
           level={level}
         />
+      )}
+
+      {recording && (
+        <div className="mb-3 space-y-1.5">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="inline-flex items-center gap-1 font-bold">
+              {geoOn ? <MapPin className="h-3.5 w-3.5 text-success" /> : <MapPinOff className="h-3.5 w-3.5 text-muted-foreground" />}
+              {geoOn ? "تتبع الموقع مفعّل" : geoError ? "الموقع معطّل" : "بانتظار إشارة GPS..."}
+            </span>
+            {path.length > 0 && <span className="text-muted-foreground tabular-nums">{path.length} نقطة</span>}
+          </div>
+          <TrackingMap
+            path={path}
+            markers={entries.filter((e) => e.latitude != null && e.longitude != null).map((e) => ({
+              id: e.id, lat: e.latitude!, lng: e.longitude!, label: e.raw,
+              status: e.matchedPlate ? "matched" : e.complete ? "detected" : "incomplete",
+            }))}
+            follow
+            showCar
+            height={200}
+          />
+          {geoError && <p className="text-[10.5px] text-warning">{geoError}</p>}
+        </div>
       )}
 
       <div className="mb-3 grid grid-cols-3 gap-2 text-center">
@@ -569,4 +655,14 @@ function formatTime(s: number): string {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m.toString().padStart(2, "0")}:${r.toString().padStart(2, "0")}`;
+}
+
+/** Distance between two lat/lng points in meters. */
+function haversine(a: GeoPoint, b: GeoPoint): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
 }
