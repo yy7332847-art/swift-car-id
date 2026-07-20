@@ -240,7 +240,7 @@ function SessionDetailPage() {
             )}
           </div>
           <TrackingMap
-            path={path}
+            path={path.length > 0 ? path : allWaypoints}
             markers={markers}
             height={260}
             focusId={focusId}

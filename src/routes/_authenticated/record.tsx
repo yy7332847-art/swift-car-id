@@ -166,6 +166,7 @@ function RecordPage() {
   const [perfStats, setPerfStats] = useState<PerfStats>({ count: 0, avgChunkGapMs: 0, avgSttMs: 0, avgParseMs: 0, avgMatchMs: 0, avgTotalMs: 0, lastLagMs: 0, queue: 0 });
   const draftSaveTimerRef = useRef<number | null>(null);
   const recentTextRef = useRef<Map<string, number>>(new Map());
+  const lastInstantTextRef = useRef("");
   const ingestTextRef = useRef<(rawText: string) => { accepted: boolean; parseMs: number; matchMs: number; textLen: number }>((rawText) => ({ accepted: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
 
   const applyEntries = useCallback((next: PlateEntry[]) => {
@@ -317,8 +318,15 @@ function RecordPage() {
         else interim += ` ${phrase}`;
       }
       const visible = cleanRecognizedText(finalText || interim);
-      if (visible) setLiveText(visible);
-      if (finalText) ingestTextRef.current(finalText);
+      if (visible) {
+        setLiveText(visible);
+        const key = visible.replace(/\s+/g, " ");
+        if (key !== lastInstantTextRef.current) {
+          lastInstantTextRef.current = key;
+          ingestTextRef.current(visible);
+        }
+      }
+      if (finalText && finalText !== visible) ingestTextRef.current(finalText);
     };
     rec.onerror = () => undefined;
     rec.onend = () => {
@@ -408,6 +416,12 @@ function RecordPage() {
         setGeoOn(true);
         const prev = rawPathRef.current[rawPathRef.current.length - 1] ?? null;
         const speed = pt.spd ?? (prev && pt.t && prev.t ? (Math.hypot(pt.lat - prev.lat, pt.lng - prev.lng) * 111000) / Math.max(0.1, (pt.t - prev.t) / 1000) : 0);
+        if (!prev) {
+          rawPathRef.current = [pt];
+          pathRef.current = [pt];
+          setPath([pt]);
+          return;
+        }
         if (!shouldAcceptPoint(prev, pt, { speed, bufferSize: rawPathRef.current.length, config: loadSettings().batterySaver })) return;
         rawPathRef.current = [...rawPathRef.current, pt];
         const smoothed = smoothPath(rawPathRef.current);
@@ -462,6 +476,7 @@ function RecordPage() {
       applyEntries([]);
       setTranscript("");
       setLiveText("");
+      lastInstantTextRef.current = "";
       setPath([]);
       pathRef.current = [];
       currentPosRef.current = null;
@@ -497,7 +512,12 @@ function RecordPage() {
       if (!u.user) throw new Error("غير مسجّل");
       const matched = current.filter((e) => e.matchedPlate).length;
       const incomplete = current.filter((e) => !e.complete).length;
-      const first = pathRef.current[0];
+      const platePath = [...current]
+        .reverse()
+        .filter((e) => e.latitude != null && e.longitude != null)
+        .map((e) => ({ lat: e.latitude!, lng: e.longitude!, t: e.spokenAt }));
+      const finalPath = pathRef.current.length >= 2 ? pathRef.current : platePath.length > 0 ? platePath : currentPosRef.current ? [currentPosRef.current] : [];
+      const first = finalPath[0];
       const { data: saved, error } = await supabase
         .from("recognition_sessions")
         .insert({
@@ -507,7 +527,7 @@ function RecordPage() {
           total_detected: current.length,
           total_matched: matched,
           total_incomplete: incomplete,
-          path: pathRef.current as unknown as never,
+          path: finalPath as unknown as never,
           start_latitude: first?.lat ?? null,
           start_longitude: first?.lng ?? null,
           notes: transcript.slice(0, 1800),
@@ -697,7 +717,7 @@ const PlateCard = memo(function PlateCard({ entry }: { entry: PlateEntry }) {
   const matched = !!entry.matchedPlate;
   const lettersSpaced = entry.letters.split("").join(" ");
   const digitsSpaced = entry.digits.split("").join(" ");
-  return <motion.div initial={{ opacity: 0, x: -20, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20 }} onClick={() => matched && setOpen((o) => !o)} className={`glass overflow-hidden rounded-2xl p-3 ${matched ? "border border-success/50 glow-success cursor-pointer" : !entry.complete ? "border border-warning/40" : "border border-border"}`}><div className="flex items-start gap-3"><div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${matched ? "bg-success/20 text-success" : !entry.complete ? "bg-warning/20 text-warning" : "bg-muted"}`}>{matched ? <CheckCircle2 className="h-5 w-5" /> : !entry.complete ? <AlertTriangle className="h-5 w-5" /> : <Car className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-xl font-black tracking-[0.3em]" dir="rtl"><span className="text-primary">{lettersSpaced}</span><span className="mx-2 text-muted-foreground">—</span><span>{digitsSpaced}</span></p><p className="text-[10px] text-muted-foreground">{matched ? "✓ مطابقة" : !entry.complete ? "غير مكتملة" : "غير موجودة بالقاعدة"} • {new Date(entry.spokenAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{entry.confidence < 0.85 && ` • ثقة ${Math.round(entry.confidence * 100)}%`}</p>{entry.spokenText && <p className="mt-1 rounded-lg bg-muted/50 px-2 py-1 text-xs font-bold leading-5" dir="rtl">{entry.spokenText}</p>}{entry.suspectPart && <p className="mt-1 rounded-lg bg-warning/10 px-2 py-1 text-[10px] text-warning">⚠ جزء مشكوك: <span className="font-mono">{entry.suspectPart}</span>{entry.correctionNote && ` — ${entry.correctionNote}`}</p>}{!entry.complete && <MissingPlateParts entry={entry} />}</div></div><AnimatePresence>{open && matched && entry.matchedPlate && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 overflow-hidden border-t border-border pt-3 text-xs"><Row label="النوع" value={entry.matchedPlate.car_type} /><Row label="البنك" value={entry.matchedPlate.bank} /><Row label="الهيكل" value={entry.matchedPlate.chassis} /><Row label="التاريخ" value={entry.matchedPlate.plate_date} /></motion.div>}</AnimatePresence></motion.div>;
+  return <motion.div initial={{ opacity: 0, x: -20, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20 }} onClick={() => matched && setOpen((o) => !o)} className={`glass overflow-hidden rounded-2xl p-3 ${matched ? "border border-success/50 glow-success cursor-pointer" : !entry.complete ? "border border-warning/40" : "border border-border"}`}><div className="flex items-start gap-3"><div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${matched ? "bg-success/20 text-success" : !entry.complete ? "bg-warning/20 text-warning" : "bg-muted"}`}>{matched ? <CheckCircle2 className="h-5 w-5" /> : !entry.complete ? <AlertTriangle className="h-5 w-5" /> : <Car className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-xl font-black tracking-[0.3em]"><span className="text-primary" dir="rtl">{lettersSpaced}</span><span className="mx-2 text-muted-foreground">—</span><span dir="ltr">{digitsSpaced}</span></p><p className="text-[10px] text-muted-foreground">{matched ? "✓ مطابقة" : !entry.complete ? "غير مكتملة" : "غير موجودة بالقاعدة"} • {new Date(entry.spokenAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{entry.confidence < 0.85 && ` • ثقة ${Math.round(entry.confidence * 100)}%`}</p>{entry.spokenText && <p className="mt-1 rounded-lg bg-muted/50 px-2 py-1 text-xs font-bold leading-5" dir="rtl">{entry.spokenText}</p>}{entry.suspectPart && <p className="mt-1 rounded-lg bg-warning/10 px-2 py-1 text-[10px] text-warning">⚠ جزء مشكوك: <span className="font-mono">{entry.suspectPart}</span>{entry.correctionNote && ` — ${entry.correctionNote}`}</p>}{!entry.complete && <MissingPlateParts entry={entry} />}</div></div><AnimatePresence>{open && matched && entry.matchedPlate && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 overflow-hidden border-t border-border pt-3 text-xs"><Row label="النوع" value={entry.matchedPlate.car_type} /><Row label="البنك" value={entry.matchedPlate.bank} /><Row label="الهيكل" value={entry.matchedPlate.chassis} /><Row label="التاريخ" value={entry.matchedPlate.plate_date} /></motion.div>}</AnimatePresence></motion.div>;
 }, (prev, next) => {
   const a = prev.entry, b = next.entry;
   return a.id === b.id && a.digits === b.digits && a.letters === b.letters && a.complete === b.complete && !!a.matchedPlate === !!b.matchedPlate && a.spokenText === b.spokenText && a.correctionNote === b.correctionNote;

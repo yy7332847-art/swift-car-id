@@ -114,7 +114,10 @@ function parseArabicNumberRun(words: string[], startIdx: number): { value: strin
     groups.push(g.value.toString().padStart(groups.length ? 2 : 1, "0"));
     i += g.consumed; groupConsumed += g.consumed;
   }
-  if (groups.length >= 2) candidates.push({ value: groups.join("").slice(0, 4), consumed: groupConsumed });
+  if (groups.length >= 2) {
+    const raw = groups.join("").slice(0, 4);
+    candidates.push({ value: raw, consumed: groupConsumed });
+  }
 
   // Strategy C: natural number ("اربعة الاف ومئتين واثنين")
   const nat = parseNaturalNumber(words, startIdx);

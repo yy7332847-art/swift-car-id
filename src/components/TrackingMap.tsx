@@ -20,6 +20,7 @@ interface Props {
   focusId?: string | null;
   /** If set, renders only path[0..playbackIndex] and puts car there. */
   playbackIndex?: number | null;
+  pathColor?: string;
 }
 
 function statusColor(s: PlateMarker["status"]): string {
@@ -59,7 +60,7 @@ function ensurePulseCSS() {
   document.head.appendChild(s);
 }
 
-export function TrackingMap({ path, markers = [], follow = false, showCar = false, height = 220, className = "", onMarkerClick, focusId = null, playbackIndex = null }: Props) {
+export function TrackingMap({ path, markers = [], follow = false, showCar = false, height = 220, className = "", onMarkerClick, focusId = null, playbackIndex = null, pathColor = "#dc2626" }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const polyRef = useRef<L.Polyline | null>(null);
@@ -75,11 +76,12 @@ export function TrackingMap({ path, markers = [], follow = false, showCar = fals
       const Ll = await import("leaflet");
       if (cancelled || !containerRef.current) return;
       leafletRef.current = Ll;
-      const initial: [number, number] = path[0] ? [path[0].lat, path[0].lng] : [24.7136, 46.6753];
+      const initialPoint = path[0] ?? markers[0];
+      const initial: [number, number] = initialPoint ? [initialPoint.lat, initialPoint.lng] : [24.7136, 46.6753];
       const map = Ll.map(containerRef.current, { zoomControl: false, attributionControl: false, preferCanvas: true }).setView(initial, 16);
       Ll.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { maxZoom: 19, subdomains: "abcd" }).addTo(map);
       Ll.control.zoom({ position: "topleft" }).addTo(map);
-      polyRef.current = Ll.polyline([], { color: "#2563eb", weight: 5, opacity: 0.85, lineJoin: "round" }).addTo(map);
+      polyRef.current = Ll.polyline([], { color: pathColor, weight: 6, opacity: 0.9, lineJoin: "round", lineCap: "round" }).addTo(map);
       markerLayerRef.current = Ll.layerGroup().addTo(map);
       mapRef.current = map;
       setTimeout(() => map.invalidateSize(), 50);
@@ -105,8 +107,9 @@ export function TrackingMap({ path, markers = [], follow = false, showCar = fals
     const sliced = playbackIndex != null && playbackIndex >= 0 ? path.slice(0, playbackIndex + 1) : path;
     const latlngs = sliced.map((p) => [p.lat, p.lng] as [number, number]);
     poly.setLatLngs(latlngs);
+    poly.setStyle({ color: pathColor });
     const last = latlngs[latlngs.length - 1];
-    const drawCar = showCar || playbackIndex != null;
+    const drawCar = showCar || playbackIndex != null || path.length > 0;
     if (drawCar && last) {
       if (!carRef.current) {
         carRef.current = Ll.marker(last, { icon: carIcon(Ll), interactive: false, keyboard: false }).addTo(map);
@@ -123,10 +126,14 @@ export function TrackingMap({ path, markers = [], follow = false, showCar = fals
       map.panTo(last, { animate: true, duration: 0.6 });
     } else if (latlngs.length > 1 && focusId == null) {
       try { map.fitBounds(poly.getBounds(), { padding: [30, 30], maxZoom: 17 }); } catch { /* empty */ }
+    } else if (markers.length > 0 && focusId == null) {
+      try {
+        map.fitBounds(Ll.latLngBounds(markers.map((m) => [m.lat, m.lng] as [number, number])), { padding: [35, 35], maxZoom: 17 });
+      } catch { /* empty */ }
     } else if (last && focusId == null) {
       map.setView(last, 16);
     }
-  }, [path, follow, showCar, playbackIndex, focusId]);
+  }, [path, markers, follow, showCar, playbackIndex, focusId, pathColor]);
 
   // markers
   useEffect(() => {
