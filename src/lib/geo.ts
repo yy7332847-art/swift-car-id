@@ -69,6 +69,11 @@ export function isAndroid(): boolean {
   if (w.Capacitor?.getPlatform?.() === "android") return true;
   return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 }
+export function isIOS(): boolean {
+  const w = window as unknown as { Capacitor?: { getPlatform?: () => string } };
+  if (w.Capacitor?.getPlatform?.() === "ios") return true;
+  return typeof navigator !== "undefined" && /iPad|iPhone|iPod/i.test(navigator.userAgent);
+}
 
 async function loadCap(): Promise<CapGeoloc | null> {
   if (capLoaded) return capGeoloc;
