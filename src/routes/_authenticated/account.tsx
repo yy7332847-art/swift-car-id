@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getMySubscription, isAdmin } from "@/lib/subscription-check";
-import { LogOut, User as UserIcon, Mail, Clock, CheckCircle2, XCircle, ShieldCheck, FileText, Download, ListChecks, AlertTriangle, ChevronLeft, Package as PackageIcon, Ban, Settings as SettingsIcon } from "lucide-react";
+import { LogOut, User as UserIcon, Mail, Clock, CheckCircle2, XCircle, ShieldCheck, FileText, Download, ListChecks, AlertTriangle, ChevronLeft, Package as PackageIcon, Ban, Settings as SettingsIcon, Flame } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import { exportSessionExcel, exportSessionPDF, formatDuration, sessionDurationSec, type SessionRow } from "@/lib/report-export";
