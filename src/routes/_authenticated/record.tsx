@@ -180,6 +180,7 @@ function RecordPage() {
   const [perfStats, setPerfStats] = useState<PerfStats>({ count: 0, avgChunkGapMs: 0, avgSttMs: 0, avgParseMs: 0, avgMatchMs: 0, avgTotalMs: 0, lastLagMs: 0, queue: 0 });
   const draftSaveTimerRef = useRef<number | null>(null);
   const recentTextRef = useRef<Map<string, number>>(new Map());
+  const ingestTextRef = useRef<(rawText: string) => { accepted: boolean; parseMs: number; matchMs: number; textLen: number }>((rawText) => ({ accepted: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
 
   const applyEntries = useCallback((next: PlateEntry[]) => {
     entriesRef.current = next;
@@ -334,6 +335,10 @@ function RecordPage() {
     return { accepted: true, parseMs, matchMs: performance.now() - tMatchStart, textLen: text.length };
   }, [applyEntries, platesIndex]);
 
+  useEffect(() => {
+    ingestTextRef.current = ingestRecognizedText;
+  }, [ingestRecognizedText]);
+
   function startInstantSpeech() {
     if (speechRef.current) return;
     const rec = createSpeechRecognition();
@@ -353,7 +358,7 @@ function RecordPage() {
       }
       const visible = cleanRecognizedText(finalText || interim);
       if (visible) setLiveText(visible);
-      if (finalText) ingestRecognizedText(finalText);
+      if (finalText) ingestTextRef.current(finalText);
     };
     rec.onerror = () => undefined;
     rec.onend = () => {
