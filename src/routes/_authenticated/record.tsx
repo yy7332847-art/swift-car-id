@@ -982,3 +982,41 @@ function PreflightRow({ ok, label, bad, warn }: { ok: boolean; label: string; ba
     </div>
   );
 }
+
+function DuplicatePromptSheet({ entry, original, match, onClose, onDecide }: { entry: PlateEntry | null; original: PlateEntry; match: DuplicateMatch; onClose: () => void; onDecide: (d: "same" | "different") => void }) {
+  if (!entry) return null;
+  const plate = `${entry.letters}-${entry.digits}`;
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <motion.div initial={{ y: 400 }} animate={{ y: 0 }} exit={{ y: 400 }} transition={{ type: "spring", stiffness: 320, damping: 32 }} className="w-full max-w-[440px] rounded-t-3xl bg-background p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary/15 text-primary"><HelpCircle className="h-5 w-5" /></div>
+            <h2 className="text-lg font-black">هل هي نفس السيارة؟</h2>
+          </div>
+          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="mb-3 rounded-xl bg-muted/40 p-3 text-center font-mono text-xl font-black tracking-[0.3em]" dir="ltr">{plate}</p>
+        <div className="mb-4 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-xl border border-border p-2.5">
+            <p className="text-[10px] text-muted-foreground">الفاصل الزمني</p>
+            <p className="text-sm font-black tabular-nums">{formatGap(match.gapSeconds)}</p>
+          </div>
+          <div className="rounded-xl border border-border p-2.5">
+            <p className="text-[10px] text-muted-foreground">المسافة</p>
+            <p className="text-sm font-black tabular-nums">{match.distanceMeters != null ? formatDistance(match.distanceMeters) : "—"}</p>
+          </div>
+        </div>
+        <p className="mb-3 text-[11px] leading-5 text-muted-foreground">تم رصد نفس اللوحة سابقاً في هذه الجلسة. لو نفس السيارة سنعتبرها تكراراً ولن تُحسب مرتين في التقرير.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => onDecide("different")} className="flex items-center justify-center gap-1.5 rounded-2xl border-2 border-border bg-background py-3 text-sm font-black">
+            <Car className="h-4 w-4" /> سيارة مختلفة
+          </button>
+          <button onClick={() => onDecide("same")} className="flex items-center justify-center gap-1.5 rounded-2xl bg-primary py-3 text-sm font-black text-primary-foreground">
+            <GitMerge className="h-4 w-4" /> نفس السيارة
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
