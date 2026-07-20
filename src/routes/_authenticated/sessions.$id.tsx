@@ -2,13 +2,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "motion/react";
-import { ChevronRight, Download, FileText, CheckCircle2, AlertTriangle, Car, MapPin, ExternalLink, Play, Pause, Share2, Map as MapIcon } from "lucide-react";
+import { ChevronRight, Download, FileText, CheckCircle2, AlertTriangle, Car, MapPin, ExternalLink, Play, Pause, Share2, Map as MapIcon, Wand2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { TrackingMap, openInMaps } from "@/components/TrackingMap";
-import { pathToGPX, pathToKML, shareOrDownload, type GeoPoint } from "@/lib/geo";
+import { pathToGPX, pathToKML, shareOrDownload, rebuildPath, type GeoPoint, type PlateWaypoint } from "@/lib/geo";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/sessions/$id")({
@@ -43,6 +43,10 @@ function SessionDetailPage() {
   const [playing, setPlaying] = useState(false);
   const [playbackIdx, setPlaybackIdx] = useState<number | null>(null);
   const [speed, setSpeed] = useState(1);
+  const [includeWaypoints, setIncludeWaypoints] = useState(true);
+  const [rebuilt, setRebuilt] = useState<GeoPoint[] | null>(null);
+  const [rebuildProgress, setRebuildProgress] = useState<number | null>(null);
+  const [useRebuilt, setUseRebuilt] = useState(false);
   const playRef = useRef<number | null>(null);
 
   const { data: session } = useQuery({
@@ -73,10 +77,11 @@ function SessionDetailPage() {
     return detected;
   }, [detected, filter]);
 
-  const path: GeoPoint[] = useMemo(() => {
+  const rawPath: GeoPoint[] = useMemo(() => {
     const raw = (session?.path as unknown as GeoPoint[] | undefined) ?? [];
     return Array.isArray(raw) ? raw.filter((p) => typeof p?.lat === "number" && typeof p?.lng === "number") : [];
   }, [session]);
+  const path: GeoPoint[] = useRebuilt && rebuilt ? rebuilt : rawPath;
 
   const markers = useMemo(() => filtered
     .filter((d) => d.latitude != null && d.longitude != null)
@@ -120,10 +125,28 @@ function SessionDetailPage() {
     if (path.length < 2) { toast.info("لا توجد إحداثيات كافية للتصدير"); return; }
     const name = `session-${id.slice(0, 8)}.${kind}`;
     const label = `PlateCheck ${new Date(session?.started_at ?? Date.now()).toLocaleString()}`;
-    const content = kind === "gpx" ? pathToGPX(path, label) : pathToKML(path, label);
+    const waypoints: PlateWaypoint[] = includeWaypoints ? (detected ?? [])
+      .filter((d) => d.latitude != null && d.longitude != null)
+      .map((d) => ({ lat: d.latitude!, lng: d.longitude!, label: d.plate_raw ?? "", t: new Date(d.detected_at).getTime(), status: d.is_matched ? "matched" : d.is_incomplete ? "incomplete" : "detected" })) : [];
+    const content = kind === "gpx" ? pathToGPX(path, { name: label, waypoints }) : pathToKML(path, { name: label, waypoints });
     const mime = kind === "gpx" ? "application/gpx+xml" : "application/vnd.google-earth.kml+xml";
     const result = await shareOrDownload(name, content, mime);
     toast.success(result === "shared" ? "تمت المشاركة" : "تم تنزيل الملف");
+  }
+
+  async function handleRebuild() {
+    if (rawPath.length < 3) { toast.info("لا يوجد مسار كافٍ لإعادة البناء"); return; }
+    setRebuildProgress(0);
+    try {
+      const out = await rebuildPath(rawPath, (pct) => setRebuildProgress(pct), { batterySaver: false });
+      setRebuilt(out);
+      setUseRebuilt(true);
+      toast.success(`تمت إعادة البناء — ${rawPath.length} → ${out.length} نقطة`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل إعادة البناء");
+    } finally {
+      setRebuildProgress(null);
+    }
   }
 
   function exportExcel() {
@@ -239,14 +262,40 @@ function SessionDetailPage() {
             </div>
           )}
           {path.length >= 2 && (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button onClick={() => exportTrack("gpx")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
-                <Share2 className="h-3.5 w-3.5 text-primary" /> مشاركة GPX
-              </button>
-              <button onClick={() => exportTrack("kml")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
-                <MapIcon className="h-3.5 w-3.5 text-success" /> مشاركة KML
-              </button>
-            </div>
+            <>
+              <label className="mt-2 flex items-center gap-2 text-[11px] font-bold text-muted-foreground">
+                <input type="checkbox" checked={includeWaypoints} onChange={(e) => setIncludeWaypoints(e.target.checked)} className="accent-primary" />
+                إدراج نقاط اللوحات كمحددات في GPX/KML
+              </label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button onClick={() => exportTrack("gpx")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
+                  <Share2 className="h-3.5 w-3.5 text-primary" /> مشاركة GPX
+                </button>
+                <button onClick={() => exportTrack("kml")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
+                  <MapIcon className="h-3.5 w-3.5 text-success" /> مشاركة KML
+                </button>
+              </div>
+              <div className="mt-3 rounded-2xl border border-primary/30 bg-primary/5 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-black"><Wand2 className="h-3.5 w-3.5 text-primary" /> إعادة بناء بيانات الخريطة</span>
+                  <button onClick={handleRebuild} disabled={rebuildProgress != null} className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[11px] font-bold text-primary-foreground disabled:opacity-50">
+                    {rebuildProgress != null ? <><Loader2 className="h-3 w-3 animate-spin" /> {rebuildProgress}%</> : "إعادة الفلترة والتنعيم"}
+                  </button>
+                </div>
+                {rebuilt && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2 text-center text-[11px]">
+                      <div className="rounded-lg bg-background/70 p-2"><p className="font-black tabular-nums">{rawPath.length}</p><p className="text-[9.5px] text-muted-foreground">قبل</p></div>
+                      <div className="rounded-lg bg-success/10 p-2"><p className="font-black tabular-nums text-success">{rebuilt.length}</p><p className="text-[9.5px] text-muted-foreground">بعد التنعيم</p></div>
+                    </div>
+                    <label className="mt-2 flex items-center gap-2 text-[11px] font-bold">
+                      <input type="checkbox" checked={useRebuilt} onChange={(e) => setUseRebuilt(e.target.checked)} className="accent-primary" />
+                      عرض النسخة المُنعّمة على الخريطة (قابل للمقارنة)
+                    </label>
+                  </>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
