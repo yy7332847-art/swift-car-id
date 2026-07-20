@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { motion } from "motion/react";
 import { Loader2, Car, ScanLine } from "lucide-react";
+import { SignupCelebration } from "@/components/SignupCelebration";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
