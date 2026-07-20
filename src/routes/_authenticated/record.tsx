@@ -512,9 +512,19 @@ function RecordPage() {
 
       {recording && (
         <div className="mb-3 space-y-1.5">
-          <div className="flex items-center justify-between text-[11px]"><span className="inline-flex items-center gap-1 font-bold">{geoOn ? <MapPin className="h-3.5 w-3.5 text-success" /> : <MapPinOff className="h-3.5 w-3.5 text-muted-foreground" />}{geoOn ? "تتبع الموقع مفعّل" : geoError ? "الموقع معطّل" : "بانتظار إشارة GPS..."}</span>{path.length > 0 && <span className="text-muted-foreground tabular-nums">{path.length} نقطة</span>}</div>
-          <TrackingMap path={path} markers={entries.filter((e) => e.latitude != null && e.longitude != null).map((e) => ({ id: e.id, lat: e.latitude!, lng: e.longitude!, label: e.raw, status: e.matchedPlate ? "matched" : e.complete ? "detected" : "incomplete" }))} follow showCar height={200} />
-          {geoError && <p className="text-[10.5px] text-warning">{geoError}</p>}
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="inline-flex items-center gap-1 font-bold">
+              {geoOn ? <MapPin className="h-3.5 w-3.5 text-success" /> : <MapPinOff className="h-3.5 w-3.5 text-muted-foreground" />}
+              {geoOn ? "تتبع الموقع مفعّل" : geoPerm === "denied" ? "الموقع مرفوض" : geoError ? "الموقع معطّل" : "بانتظار إشارة GPS..."}
+            </span>
+            {path.length > 0 && <span className="text-muted-foreground tabular-nums">{path.length} نقطة</span>}
+          </div>
+          {geoPerm === "denied" ? (
+            <GeoDeniedBanner onRetry={() => void startGeoTracking()} />
+          ) : (
+            <TrackingMap path={path} markers={entries.filter((e) => e.latitude != null && e.longitude != null).map((e) => ({ id: e.id, lat: e.latitude!, lng: e.longitude!, label: e.raw, status: e.matchedPlate ? "matched" : e.complete ? "detected" : "incomplete" }))} follow showCar height={200} />
+          )}
+          {geoError && geoPerm !== "denied" && <p className="text-[10.5px] text-warning">{geoError}</p>}
         </div>
       )}
 
