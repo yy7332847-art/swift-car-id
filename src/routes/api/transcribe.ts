@@ -27,8 +27,9 @@ export const Route = createFileRoute("/api/transcribe")({
         upstream.append("model", "openai/gpt-4o-transcribe");
         upstream.append("file", audio as Blob, name);
         upstream.append("language", "ar");
-
-        upstream.append("prompt", "أرقام لوحات سيارات سعودية: ثلاثة حروف عربية ثم أربعة أرقام. مثال: أ ب ت ٤٢٢٢، حنق ٢٠١٤، ب ب د ٢٦٠٤.");
+        upstream.append("temperature", "0");
+        // Neutral prompt: no example plates (they cause the model to echo phantom plates).
+        upstream.append("prompt", "نطق حروف عربية منفصلة ثم أرقام. اكتب فقط ما يُنطق فعلاً بدون إضافة أي كلمات أو أمثلة، وإن لم يوجد صوت واضح فلا تكتب شيئاً.");
 
         try {
           const res = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
@@ -42,6 +43,7 @@ export const Route = createFileRoute("/api/transcribe")({
             return new Response(JSON.stringify({ error: bodyText || "Transcription failed", status: res.status }), { status: res.status });
           }
           return new Response(bodyText, { headers: { "Content-Type": "application/json" } });
+
         } catch (err) {
           console.error(err);
           return new Response(JSON.stringify({ error: String(err) }), { status: 500 });

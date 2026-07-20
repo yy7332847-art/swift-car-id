@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, FileSpreadsheet, Loader2, Trash2, CheckCircle2 } from "lucide-react";
+import { Upload, FileSpreadsheet, Loader2, Trash2, CheckCircle2, RotateCcw, Star } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import * as XLSX from "xlsx";
 import { normalizePlate, splitPlate } from "@/lib/plate-utils";
@@ -35,7 +35,6 @@ function parseExcel(file: File): Promise<{ rows: ParsedRow[]; headers: string[] 
       try {
         const data = new Uint8Array(e.target!.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: "array" });
-        // Find sheet with most rows
         let bestSheet = wb.SheetNames[0];
         let bestCount = 0;
         for (const name of wb.SheetNames) {
@@ -78,6 +77,7 @@ function UploadPage() {
   const qc = useQueryClient();
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const { data: batches, refetch } = useQuery({
     queryKey: ["batches"],
@@ -86,7 +86,7 @@ function UploadPage() {
       if (!u.user) return [];
       const { data } = await supabase
         .from("plate_batches")
-        .select("id, file_name, plates_count, created_at")
+        .select("id, file_name, plates_count, created_at, is_active, activated_at")
         .eq("user_id", u.user.id)
         .order("created_at", { ascending: false });
       return data ?? [];
@@ -122,9 +122,12 @@ function UploadPage() {
         if (error) throw error;
         setProgress({ done: Math.min(i + CHUNK, rows.length), total: rows.length });
       }
-      toast.success(`تم رفع ${rows.length.toLocaleString("ar-EG")} لوحة بنجاح`);
+      // Auto-activate the new batch
+      await supabase.rpc("set_active_plate_batch", { _batch_id: batch.id });
+      toast.success(`تم رفع ${rows.length.toLocaleString("ar-EG")} لوحة وتفعيل النسخة الجديدة`);
       qc.invalidateQueries({ queryKey: ["batches"] });
       qc.invalidateQueries({ queryKey: ["home-stats"] });
+      qc.invalidateQueries({ queryKey: ["plates-index"] });
       refetch();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "فشل الرفع");
@@ -134,19 +137,34 @@ function UploadPage() {
     }
   }
 
+  async function activate(id: string) {
+    setBusyId(id);
+    const { error } = await supabase.rpc("set_active_plate_batch", { _batch_id: id });
+    setBusyId(null);
+    if (error) return toast.error(error.message);
+    toast.success("تم الرجوع إلى هذه النسخة");
+    qc.invalidateQueries({ queryKey: ["batches"] });
+    qc.invalidateQueries({ queryKey: ["plates-index"] });
+  }
+
   async function deleteBatch(id: string) {
-    if (!confirm("حذف هذه الدفعة وكل لوحاتها؟")) return;
+    if (!confirm("حذف هذه النسخة وكل لوحاتها؟")) return;
+    setBusyId(id);
     const { error } = await supabase.from("plate_batches").delete().eq("id", id);
+    setBusyId(null);
     if (error) return toast.error(error.message);
     toast.success("تم الحذف");
     qc.invalidateQueries({ queryKey: ["batches"] });
     qc.invalidateQueries({ queryKey: ["home-stats"] });
+    qc.invalidateQueries({ queryKey: ["plates-index"] });
   }
+
+  const active = batches?.find((b) => b.is_active);
 
   return (
     <div className="px-5 pt-8">
-      <h1 className="mb-1 text-2xl font-black">رفع ملف اللوحات</h1>
-      <p className="mb-5 text-sm text-muted-foreground">يومياً — Excel من البنك</p>
+      <h1 className="mb-1 text-2xl font-black">إدارة نسخ Excel</h1>
+      <p className="mb-5 text-sm text-muted-foreground">ارفع نسخة يومية أو ارجع لأي نسخة سابقة</p>
 
       <label className={`block rounded-3xl border-2 border-dashed border-primary/40 bg-primary/5 p-8 text-center transition ${uploading ? "opacity-50" : "hover:bg-primary/10 cursor-pointer"}`}>
         <input type="file" accept=".xlsx,.xls" className="hidden" disabled={uploading} onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
@@ -165,29 +183,53 @@ function UploadPage() {
         )}
       </label>
 
-      <div className="mt-8">
-        <h2 className="mb-3 text-sm font-bold text-muted-foreground">الدفعات السابقة</h2>
+      {active && (
+        <div className="mt-5 rounded-2xl border border-success/40 bg-success/10 p-4">
+          <div className="flex items-center gap-2">
+            <Star className="h-4 w-4 fill-success text-success" />
+            <span className="text-xs font-bold text-success">النسخة النشطة حالياً</span>
+          </div>
+          <p className="mt-1 truncate text-sm font-bold">{active.file_name}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {active.plates_count.toLocaleString("ar-EG")} لوحة • آخر تحديث: {new Date(active.activated_at ?? active.created_at).toLocaleString("ar-EG")}
+          </p>
+        </div>
+      )}
+
+      <div className="mt-6">
+        <h2 className="mb-3 text-sm font-bold text-muted-foreground">كل النسخ ({batches?.length ?? 0})</h2>
         <AnimatePresence>
           {batches && batches.length > 0 ? (
             <div className="space-y-2">
               {batches.map((b) => (
-                <motion.div key={b.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} className="glass flex items-center gap-3 rounded-2xl p-3">
-                  <FileSpreadsheet className="h-8 w-8 shrink-0 text-primary" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold">{b.file_name}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      <CheckCircle2 className="ml-1 inline h-3 w-3 text-success" />
-                      {b.plates_count.toLocaleString("ar-EG")} لوحة • {new Date(b.created_at).toLocaleString("ar-EG")}
-                    </p>
+                <motion.div key={b.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} className={`glass rounded-2xl p-3 ${b.is_active ? "border border-success/50" : ""}`}>
+                  <div className="flex items-start gap-3">
+                    <FileSpreadsheet className="mt-0.5 h-8 w-8 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-bold">{b.file_name}</p>
+                        {b.is_active && <span className="inline-flex items-center gap-1 rounded-full bg-success/20 px-2 py-0.5 text-[9px] font-bold text-success"><CheckCircle2 className="h-2.5 w-2.5" />نشطة</span>}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {b.plates_count.toLocaleString("ar-EG")} لوحة • رُفع: {new Date(b.created_at).toLocaleString("ar-EG")}
+                      </p>
+                    </div>
                   </div>
-                  <button onClick={() => deleteBatch(b.id)} className="shrink-0 rounded-lg p-2 text-destructive hover:bg-destructive/10">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="mt-3 flex gap-2">
+                    {!b.is_active && (
+                      <button disabled={busyId === b.id} onClick={() => activate(b.id)} className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-bold text-primary-foreground disabled:opacity-50">
+                        <RotateCcw className="h-3 w-3" /> رجوع لهذه النسخة
+                      </button>
+                    )}
+                    <button disabled={busyId === b.id} onClick={() => deleteBatch(b.id)} className="rounded-lg bg-destructive/20 px-3 py-1.5 text-[11px] font-bold text-destructive disabled:opacity-50">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
                 </motion.div>
               ))}
             </div>
           ) : (
-            <p className="rounded-2xl bg-muted/50 p-6 text-center text-sm text-muted-foreground">لا توجد دفعات بعد</p>
+            <p className="rounded-2xl bg-muted/50 p-6 text-center text-sm text-muted-foreground">لا توجد نسخ بعد</p>
           )}
         </AnimatePresence>
       </div>
