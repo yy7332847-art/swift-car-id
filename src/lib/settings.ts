@@ -19,8 +19,20 @@ export interface BatterySaverConfig {
   maxAccuracyMeters: number;
 }
 
+export interface DuplicateDetectionConfig {
+  /** Enable smart duplicate detection during recording. */
+  enabled: boolean;
+  /** Time window in minutes for candidate duplicate matching. */
+  windowMinutes: number;
+  /** Distance threshold in meters — below this AND within window → likely same car. */
+  distanceMeters: number;
+  /** Auto-mark as same car when both time and distance are within thresholds (no prompt). */
+  autoMergeCloseCaptures: boolean;
+}
+
 export interface AppSettings {
   batterySaver: BatterySaverConfig;
+  duplicateDetection: DuplicateDetectionConfig;
   /** Days before subscription expiry to start notifying the user. */
   expiryNotifyDays: number;
   /** Enable in-app expiry banner. */
@@ -38,6 +50,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     intervalWalkingSec: 3,
     intervalDrivingSec: 1,
     maxAccuracyMeters: 60,
+  },
+  duplicateDetection: {
+    enabled: true,
+    windowMinutes: 10,
+    distanceMeters: 300,
+    autoMergeCloseCaptures: false,
   },
   expiryNotifyDays: 3,
   expiryInAppNotify: true,
