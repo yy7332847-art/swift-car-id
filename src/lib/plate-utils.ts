@@ -41,8 +41,10 @@ const TEENS: Record<string, number> = { "عشره": 10, "عشرة": 10, "عشر"
 const TENS: Record<string, number> = { "عشرين": 20, "عشرون": 20, "ثلاثين": 30, "ثلاثون": 30, "تلاتين": 30, "اربعين": 40, "اربعون": 40, "خمسين": 50, "خمسون": 50, "ستين": 60, "ستون": 60, "سبعين": 70, "سبعون": 70, "ثمانين": 80, "ثمانون": 80, "تمانين": 80, "تسعين": 90, "تسعون": 90 };
 const HUNDREDS: Record<string, number> = { "مئه": 100, "مئة": 100, "مائه": 100, "مائة": 100, "ميه": 100, "مية": 100, "مئتين": 200, "مائتين": 200, "ميتين": 200, "متين": 200, "ثلاثمئه": 300, "ثلاثمئة": 300, "ثلاثمائه": 300, "ثلاثمائة": 300, "تلتميه": 300, "تلتمية": 300, "اربعمئه": 400, "اربعمئة": 400, "اربعمائه": 400, "اربعمائة": 400, "ربعميه": 400, "ربعمية": 400, "خمسمئه": 500, "خمسمئة": 500, "خمسمائه": 500, "خمسمائة": 500, "خمسميه": 500, "خمسمية": 500, "ستمئه": 600, "ستمئة": 600, "ستمائه": 600, "ستمائة": 600, "ستميه": 600, "ستمية": 600, "سبعمئه": 700, "سبعمئة": 700, "سبعمائه": 700, "سبعمائة": 700, "سبعميه": 700, "سبعمية": 700, "ثمانمئه": 800, "ثمانمئة": 800, "ثمانمائه": 800, "ثمانمائة": 800, "تمنميه": 800, "تمنمية": 800, "تسعمئه": 900, "تسعمئة": 900, "تسعمائه": 900, "تسعمائة": 900, "تسعميه": 900, "تسعمية": 900 };
 const THOUSANDS = new Set(["الف", "الفا", "الاف", "الفين"]);
-const PLATE_LETTERS = new Set("ابجدهوزحطيكلمنسعصقرشتثخذضظغف".split(""));
+// Official Saudi plate letters only.
+const PLATE_LETTERS = new Set("ابحدرسصطعقكلمنهوي".split(""));
 const LETTER_NAMES: Record<string, string> = { "الف": "ا", "ا": "ا", "باء": "ب", "با": "ب", "ب": "ب", "تاء": "ت", "تا": "ت", "ت": "ت", "جيم": "ج", "ج": "ج", "حاء": "ح", "حا": "ح", "ح": "ح", "خاء": "خ", "خا": "خ", "خ": "خ", "دال": "د", "د": "د", "ذال": "ذ", "ذ": "ذ", "راء": "ر", "را": "ر", "ر": "ر", "زاي": "ز", "زين": "ز", "ز": "ز", "سين": "س", "س": "س", "شين": "ش", "ش": "ش", "صاد": "ص", "ص": "ص", "ضاد": "ض", "ض": "ض", "طاء": "ط", "طا": "ط", "ط": "ط", "ظاء": "ظ", "ظا": "ظ", "ظ": "ظ", "عين": "ع", "ع": "ع", "غين": "غ", "غ": "غ", "فاء": "ف", "فا": "ف", "ف": "ف", "قاف": "ق", "ق": "ق", "كاف": "ك", "ك": "ك", "لام": "ل", "ل": "ل", "ميم": "م", "م": "م", "نون": "ن", "ن": "ن", "هاء": "ه", "ها": "ه", "ه": "ه", "واو": "و", "و": "و", "ياء": "ي", "يا": "ي", "ي": "ي" };
+const COMMON_NON_PLATE_WORDS = new Set(["انا", "انت", "انتي", "انه", "اني", "هذا", "هذه", "اللي", "على", "علي", "السلام"]);
 
 function tokenize(text: string): string[] { return normalizeArabic(text).replace(/[،.,؟?!:؛;\-_/\\|()[\]{}]/g, " ").split(/\s+/).filter(Boolean); }
 function isNumberWord(word: string): boolean { return DIGIT_WORDS[word] !== undefined || TEENS[word] !== undefined || TENS[word] !== undefined || HUNDREDS[word] !== undefined || THOUSANDS.has(word); }
@@ -82,8 +84,14 @@ function parseNaturalNumber(words: string[], start: number): { value: string; co
 }
 
 function parseArabicNumberRun(words: string[], startIdx: number): { value: string; consumed: number; suspectPart?: string; correctionNote?: string } {
-  const d = directDigits(words[startIdx] ?? "");
-  if (d) return { value: d.slice(0, 4), consumed: 1 };
+  let directSeq = "", directConsumed = 0;
+  for (let i = startIdx; i < words.length && directSeq.length < 4; i++) {
+    const d = directDigits(words[i] ?? "");
+    if (!d) break;
+    directSeq += d;
+    directConsumed++;
+  }
+  if (directSeq.length >= 2) return { value: directSeq.slice(0, 4), consumed: directConsumed };
 
   type Cand = { value: string; consumed: number; suspectPart?: string; correctionNote?: string };
   const candidates: Cand[] = [];
@@ -95,7 +103,7 @@ function parseArabicNumberRun(words: string[], startIdx: number): { value: strin
     if (DIGIT_WORDS[w] === undefined) break;
     seq += DIGIT_WORDS[w]; seqConsumed++;
   }
-  if (seq.length >= 2) candidates.push({ value: seq, consumed: seqConsumed });
+  if (seq.length >= 2) return { value: seq, consumed: seqConsumed };
 
   // Strategy B: two two-digit groups ("اثنين واربعين اتنين وعشرين")
   const groups: string[] = [];
@@ -140,6 +148,8 @@ for (const [w, d] of Object.entries(DIGIT_WORDS)) { (DIGIT_TO_WORDS[d] ||= []).p
 /** True if every letter and every digit of the plate has some spoken evidence in the transcript. */
 export function plateAppearsInText(letters: string, digits: string, text: string): boolean {
   const norm = " " + normalizeArabic(text) + " ";
+  const compact = normalizePlate(text);
+  if (compact.includes(`${letters}${digits}`) || compact.includes(`${digits}${letters}`)) return true;
   for (const ch of letters) {
     const names = LETTER_TO_NAMES[ch] ?? [];
     const found = names.some((n) => norm.includes(` ${n} `) || norm.includes(` ${n}`) || norm.includes(`${n} `));
@@ -158,7 +168,10 @@ export function plateAppearsInText(letters: string, digits: string, text: string
 
 function pushFound(found: DetectedPlate[], plate: Omit<DetectedPlate, "raw" | "normalized" | "complete" | "confidence"> & { confidence?: number }) {
   const letters = plate.letters.slice(0, 3), digits = plate.digits.slice(0, 4);
-  if (letters.length < 2 || digits.length < 2) return;
+  // Saudi plates need 3 official letters. Do not turn normal Arabic words
+  // like "انا" or "السلام" into plate letters.
+  if (letters.length !== 3 || digits.length < 3) return;
+  if (!letters.split("").every((c) => PLATE_LETTERS.has(c))) return;
   const normalized = normalizePlate(letters + digits);
   if (found.some((f) => f.normalized === normalized)) return;
   const complete = letters.length === 3 && digits.length === 4;
@@ -174,13 +187,16 @@ export function extractPlates(text: string): DetectedPlate[] {
     while (j < words.length && letters.length < 3) {
       const raw = stripWa(words[j]);
       if (/^[\u0621-\u064A]+$/.test(raw)) {
-        if (LETTER_NAMES[raw]) { letters += LETTER_NAMES[raw]; j++; continue; }
+        if (LETTER_NAMES[raw] && PLATE_LETTERS.has(LETTER_NAMES[raw])) { letters += LETTER_NAMES[raw]; j++; continue; }
         const chars = raw.split("").map((c) => LETTER_MAP[c] ?? c);
-        if (raw.length <= 3 && chars.every((c) => PLATE_LETTERS.has(c))) { letters += chars.join("").slice(0, 3 - letters.length); j++; continue; }
+        // Accept a bare one-letter token only. Compact words are accepted below
+        // only when directly attached to digits (e.g. "ابج1234").
+        if (raw.length === 1 && chars.every((c) => PLATE_LETTERS.has(c))) { letters += chars.join("").slice(0, 3 - letters.length); j++; continue; }
+        if (letters.length === 0 && raw.length === 3 && !COMMON_NON_PLATE_WORDS.has(raw) && chars.every((c) => PLATE_LETTERS.has(c))) { letters = chars.join(""); j++; continue; }
       }
       break;
     }
-    if (letters.length >= 2) {
+    if (letters.length === 3) {
       const parsed = parseArabicNumberRun(words, j);
       if (parsed.value && parsed.value.length >= 2) {
         const short = letters.length !== 3 || parsed.value.length < 4;
@@ -190,8 +206,8 @@ export function extractPlates(text: string): DetectedPlate[] {
     }
   }
   for (const w of words) {
-    const m = normalizePlate(w).match(/^([\u0621-\u064A]{2,4})(\d{2,6})$/);
-    if (m) pushFound(found, { letters: m[1], digits: m[2], confidence: 0.9 });
+    const m = normalizePlate(w).match(/^([\u0621-\u064A]{3})(\d{2,6})$/);
+    if (m && !COMMON_NON_PLATE_WORDS.has(m[1]) && m[1].split("").every((c) => PLATE_LETTERS.has(c))) pushFound(found, { letters: m[1], digits: m[2], confidence: 0.9 });
   }
   return found;
 }

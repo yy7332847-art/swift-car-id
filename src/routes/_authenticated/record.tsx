@@ -54,6 +54,32 @@ interface DraftSession {
 
 const DRAFT_KEY = "platecheck.active-recording-draft.v4";
 
+type SpeechRecognitionResultLike = { isFinal: boolean; 0: { transcript: string } };
+type SpeechRecognitionEventLike = { resultIndex: number; results: SpeechRecognitionResultLike[] };
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+function createSpeechRecognition(): BrowserSpeechRecognition | null {
+  if (typeof window === "undefined") return null;
+  const w = window as typeof window & { SpeechRecognition?: new () => BrowserSpeechRecognition; webkitSpeechRecognition?: new () => BrowserSpeechRecognition };
+  const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+  return Ctor ? new Ctor() : null;
+}
+
+function cleanRecognizedText(input: string): string {
+  return input.replace(/\s+/g, " ").trim();
+}
+
 function RecordPage() {
   const { data: sub } = useQuery({ queryKey: ["sub"], queryFn: getMySubscription });
   const { data: admin } = useQuery({ queryKey: ["is-admin"], queryFn: isAdmin });
@@ -119,6 +145,7 @@ function RecordPage() {
   const [level, setLevel] = useState(0);
   const [entries, setEntries] = useState<PlateEntry[]>([]);
   const [transcript, setTranscript] = useState("");
+  const [liveText, setLiveText] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [savedSessionId, setSavedSessionId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -140,6 +167,7 @@ function RecordPage() {
   // (path throttling now handled inside geo.ts via shouldAcceptPoint)
   const pathRef = useRef<GeoPoint[]>([]);
   const recorderRef = useRef<RecorderHandle | null>(null);
+  const speechRef = useRef<BrowserSpeechRecognition | null>(null);
   const processChunkRef = useRef<(wav: Blob) => void>(() => undefined);
   const pendingRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
@@ -151,6 +179,8 @@ function RecordPage() {
   const lastChunkAtRef = useRef<number>(0);
   const [perfStats, setPerfStats] = useState<PerfStats>({ count: 0, avgChunkGapMs: 0, avgSttMs: 0, avgParseMs: 0, avgMatchMs: 0, avgTotalMs: 0, lastLagMs: 0, queue: 0 });
   const draftSaveTimerRef = useRef<number | null>(null);
+  const recentTextRef = useRef<Map<string, number>>(new Map());
+  const ingestTextRef = useRef<(rawText: string) => { accepted: boolean; parseMs: number; matchMs: number; textLen: number }>((rawText) => ({ accepted: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
 
   const applyEntries = useCallback((next: PlateEntry[]) => {
     entriesRef.current = next;
@@ -168,9 +198,10 @@ function RecordPage() {
   const startCapture = useCallback(async () => {
     if (recorderRef.current) return;
     startGeoTracking();
+    startInstantSpeech();
     recorderRef.current = await startRecorder({
-      chunkSeconds: 1.05,
-      overlapSeconds: 0.85,
+      chunkSeconds: 1.25,
+      overlapSeconds: 0.25,
       targetSampleRate: 16000,
       onLevel: setLevel,
       onChunk: (wav) => processChunkRef.current(wav),
@@ -209,6 +240,7 @@ function RecordPage() {
       setStartedAt(draft.startedAt);
       setElapsed(Math.floor((Date.now() - draft.startedAt) / 1000));
       setTranscript(draft.transcript ?? "");
+      setLiveText(draft.transcript?.slice(-140) ?? "");
       setPath(draft.path ?? []);
       pathRef.current = draft.path ?? [];
       applyEntries(draft.entries ?? []);
@@ -220,6 +252,131 @@ function RecordPage() {
       }
     })().catch((e) => console.error("restore draft", e));
   }, [applyEntries, platesLoading, startCapture]);
+
+  const ingestRecognizedText = useCallback((rawText: string) => {
+    const text = cleanRecognizedText(rawText);
+    const tParseStart = performance.now();
+    if (!text || text.length < 2) return { accepted: false, parseMs: 0, matchMs: 0, textLen: text.length };
+    setLiveText(text);
+    const dedupeKey = text.replace(/[\s،.,؟?!:؛;\-_/\\|()[\]{}]/g, "");
+    const lastAt = recentTextRef.current.get(dedupeKey);
+    const now = Date.now();
+    if (lastAt && now - lastAt < 4500) return { accepted: false, parseMs: 0, matchMs: 0, textLen: text.length };
+    recentTextRef.current.set(dedupeKey, now);
+    for (const [key, at] of recentTextRef.current) if (now - at > 12000) recentTextRef.current.delete(key);
+    setTranscript((prev) => (prev + " " + text).trim().slice(-3000));
+    const plates = extractPlates(text);
+    const parseMs = performance.now() - tParseStart;
+    if (plates.length === 0) return { accepted: true, parseMs, matchMs: 0, textLen: text.length };
+    const tMatchStart = performance.now();
+
+    for (const p of plates) {
+      if (!p.complete && !plateAppearsInText(p.letters, p.digits, text)) continue;
+      const match = platesIndex?.map.get(p.normalized);
+      const isMatched = !!match && p.complete && p.confidence >= 0.85;
+      const closest = !isMatched ? findClosestPlate(p.normalized, platesIndex?.list ?? []) : null;
+      const enriched: DetectedPlate = {
+        ...p,
+        suspectPart: p.suspectPart ?? missingPartsLabel(p),
+        correctionNote: p.correctionNote ?? (closest ? `أقرب بديل في Excel: ${closest.raw} بنسبة ${Math.round(closest.score * 100)}%` : undefined),
+      };
+      const key = enriched.letters;
+      const existing = growableRef.current.get(key);
+      if (existing) {
+        if (enriched.digits.length <= existing.digits.length) continue;
+        applyEntries(entriesRef.current.map((e) => e.id === existing.entryId ? {
+          ...e,
+          ...enriched,
+          spokenText: `${e.spokenText} ${text}`.trim().slice(-700),
+          matchedPlateId: isMatched ? match!.id : null,
+          closestPlate: closest,
+          matchedPlate: isMatched ? toMatched(match!) : undefined,
+        } : e));
+        setLastCapture({ raw: enriched.raw, complete: enriched.complete, matched: isMatched, at: now });
+        if (enriched.complete) {
+          growableRef.current.delete(key);
+          finalizedRef.current.set(enriched.normalized, now);
+          if (isMatched) {
+            if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
+            toast.success(`تطابق: ${enriched.raw}`, { description: match!.car_type || undefined });
+          }
+        } else {
+          growableRef.current.set(key, { ...existing, digits: enriched.digits });
+        }
+        continue;
+      }
+
+      const lastSame = finalizedRef.current.get(enriched.normalized);
+      if (lastSame && now - lastSame < 9000) continue;
+      const pos = currentPosRef.current;
+      const entry: PlateEntry = {
+        ...enriched,
+        id: crypto.randomUUID(),
+        spokenAt: now,
+        spokenText: text,
+        matchedPlateId: isMatched ? match!.id : null,
+        closestPlate: closest,
+        latitude: pos?.lat ?? null,
+        longitude: pos?.lng ?? null,
+        matchedPlate: isMatched ? toMatched(match!) : undefined,
+      };
+      applyEntries([entry, ...entriesRef.current].slice(0, 500));
+      setLastCapture({ raw: enriched.raw, complete: enriched.complete, matched: isMatched, at: now });
+      if (enriched.complete) {
+        finalizedRef.current.set(enriched.normalized, now);
+        if (isMatched) {
+          if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
+          toast.success(`تطابق: ${enriched.raw}`, { description: match!.car_type || undefined });
+        }
+      } else {
+        growableRef.current.set(key, { entryId: entry.id, digits: enriched.digits });
+      }
+    }
+    return { accepted: true, parseMs, matchMs: performance.now() - tMatchStart, textLen: text.length };
+  }, [applyEntries, platesIndex]);
+
+  useEffect(() => {
+    ingestTextRef.current = ingestRecognizedText;
+  }, [ingestRecognizedText]);
+
+  function startInstantSpeech() {
+    if (speechRef.current) return;
+    const rec = createSpeechRecognition();
+    if (!rec) return;
+    rec.lang = "ar-SA";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.onresult = (event) => {
+      let interim = "";
+      let finalText = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const phrase = cleanRecognizedText(event.results[i]?.[0]?.transcript ?? "");
+        if (!phrase) continue;
+        if (event.results[i].isFinal) finalText += ` ${phrase}`;
+        else interim += ` ${phrase}`;
+      }
+      const visible = cleanRecognizedText(finalText || interim);
+      if (visible) setLiveText(visible);
+      if (finalText) ingestTextRef.current(finalText);
+    };
+    rec.onerror = () => undefined;
+    rec.onend = () => {
+      if (recording || sessionIdRef.current) {
+        try { rec.start(); } catch { /* already started */ }
+      }
+    };
+    speechRef.current = rec;
+    try { rec.start(); } catch { speechRef.current = null; }
+  }
+
+  function stopInstantSpeech() {
+    const rec = speechRef.current;
+    speechRef.current = null;
+    if (!rec) return;
+    rec.onend = null;
+    try { rec.stop(); } catch { try { rec.abort(); } catch { /* noop */ } }
+  }
 
   const processChunk = useCallback(async (wav: Blob) => {
     pendingRef.current++;
@@ -242,85 +399,15 @@ function RecordPage() {
       }
       const json = await res.json();
       sttMs = performance.now() - tStt;
-      const text: string = (json.text || "").trim();
-      textLen = text.length;
-      if (!text || text.length < 2) return;
-      setTranscript((prev) => (prev + " " + text).trim().slice(-3000));
-      const tParse = performance.now();
-      const plates = extractPlates(text);
-      parseMs = performance.now() - tParse;
-      if (plates.length === 0) return;
-      const tMatch = performance.now();
-
-      for (const p of plates) {
-        if (!p.complete && !plateAppearsInText(p.letters, p.digits, text)) continue;
-        const match = platesIndex?.map.get(p.normalized);
-        const isMatched = !!match && p.complete && p.confidence >= 0.85;
-        const closest = !isMatched ? findClosestPlate(p.normalized, platesIndex?.list ?? []) : null;
-        const enriched: DetectedPlate = {
-          ...p,
-          suspectPart: p.suspectPart ?? missingPartsLabel(p),
-          correctionNote: p.correctionNote ?? (closest ? `أقرب بديل في Excel: ${closest.raw} بنسبة ${Math.round(closest.score * 100)}%` : undefined),
-        };
-        const now = Date.now();
-        const key = enriched.letters;
-        const existing = growableRef.current.get(key);
-        if (existing) {
-          if (enriched.digits.length <= existing.digits.length) continue;
-          applyEntries(entriesRef.current.map((e) => e.id === existing.entryId ? {
-            ...e,
-            ...enriched,
-            spokenText: `${e.spokenText} ${text}`.trim().slice(-700),
-            matchedPlateId: isMatched ? match!.id : null,
-            closestPlate: closest,
-            matchedPlate: isMatched ? toMatched(match!) : undefined,
-          } : e));
-          setLastCapture({ raw: enriched.raw, complete: enriched.complete, matched: isMatched, at: now });
-          if (enriched.complete) {
-            growableRef.current.delete(key);
-            finalizedRef.current.set(enriched.normalized, now);
-            if (isMatched) {
-              if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
-              toast.success(`تطابق: ${enriched.raw}`, { description: match!.car_type || undefined });
-            }
-          } else {
-            growableRef.current.set(key, { ...existing, digits: enriched.digits });
-          }
-          continue;
-        }
-
-        const lastSame = finalizedRef.current.get(enriched.normalized);
-        if (lastSame && now - lastSame < 9000) continue;
-        const pos = currentPosRef.current;
-        const entry: PlateEntry = {
-          ...enriched,
-          id: crypto.randomUUID(),
-          spokenAt: now,
-          spokenText: text,
-          matchedPlateId: isMatched ? match!.id : null,
-          closestPlate: closest,
-          latitude: pos?.lat ?? null,
-          longitude: pos?.lng ?? null,
-          matchedPlate: isMatched ? toMatched(match!) : undefined,
-        };
-        applyEntries([entry, ...entriesRef.current].slice(0, 500));
-        setLastCapture({ raw: enriched.raw, complete: enriched.complete, matched: isMatched, at: now });
-        if (enriched.complete) {
-          finalizedRef.current.set(enriched.normalized, now);
-          if (isMatched) {
-            if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
-            toast.success(`تطابق: ${enriched.raw}`, { description: match!.car_type || undefined });
-          }
-        } else {
-          growableRef.current.set(key, { entryId: entry.id, digits: enriched.digits });
-        }
-      }
-      matchMs = performance.now() - tMatch - parseMs > 0 ? performance.now() - (t0 + sttMs + parseMs) : 0;
+      const metrics = ingestRecognizedText(json.text || "");
+      parseMs = metrics.parseMs;
+      matchMs = metrics.matchMs;
+      textLen = metrics.textLen;
     } catch (err) {
       console.error(err);
     } finally {
       const totalMs = performance.now() - t0;
-      const sample: PerfSample = { chunkGapMs: chunkGap, sttMs, parseMs, matchMs: Math.max(0, totalMs - sttMs - parseMs), totalMs, textLen, at: Date.now() };
+      const sample: PerfSample = { chunkGapMs: chunkGap, sttMs, parseMs, matchMs, totalMs, textLen, at: Date.now() };
       const buf = perfBufferRef.current;
       buf.push(sample);
       if (buf.length > PERF_BUFFER_SIZE) buf.shift();
@@ -329,7 +416,7 @@ function RecordPage() {
       pendingRef.current--;
       if (pendingRef.current === 0) setProcessing(false);
     }
-  }, [applyEntries, platesIndex]);
+  }, [ingestRecognizedText]);
 
   useEffect(() => {
     processChunkRef.current = (wav: Blob) => { void processChunk(wav); };
@@ -414,6 +501,7 @@ function RecordPage() {
       setSavedSessionId(null);
       applyEntries([]);
       setTranscript("");
+      setLiveText("");
       setPath([]);
       pathRef.current = [];
       currentPosRef.current = null;
@@ -429,6 +517,7 @@ function RecordPage() {
 
   async function stopRecording() {
     setRecording(false);
+    stopInstantSpeech();
     await recorderRef.current?.stop();
     recorderRef.current = null;
     stopGeoTracking();
@@ -494,6 +583,7 @@ function RecordPage() {
       setSavedSessionId(saved.id);
       setSessionId(null);
       sessionIdRef.current = null;
+      stopInstantSpeech();
       setReviewOpen(false);
       setStartedAt(null);
       toast.success(`تم حفظ الجلسة — ${current.length} لوحة، ${matched} مطابقة`);
@@ -509,9 +599,11 @@ function RecordPage() {
     localStorage.removeItem(DRAFT_KEY);
     sessionIdRef.current = null;
     setSessionId(null);
+    stopInstantSpeech();
     setStartedAt(null);
     setReviewOpen(false);
     setTranscript("");
+    setLiveText("");
     applyEntries([]);
     setPath([]);
     pathRef.current = [];
@@ -536,7 +628,7 @@ function RecordPage() {
     doc.save(`current-session-${Date.now()}.pdf`);
   }
 
-  useEffect(() => () => { void recorderRef.current?.stop(); stopGeoTracking(); }, []);
+  useEffect(() => () => { stopInstantSpeech(); void recorderRef.current?.stop(); stopGeoTracking(); }, []);
 
   const notActive = sub && !sub.active && !admin;
 
@@ -564,7 +656,12 @@ function RecordPage() {
         {!recording && !reviewOpen && <button onClick={() => setCalibrating(true)} disabled={!!notActive} className="mt-3 inline-flex items-center gap-1 rounded-full bg-muted/60 px-3 py-1.5 text-xs font-bold disabled:opacity-40"><Settings2 className="h-3 w-3" /> معايرة الميكروفون</button>}
       </div>
 
-      {recording && <LiveStatusBar processing={processing} transcript={transcript} lastCapture={lastCapture} level={level} />}
+      {recording && <LiveStatusBar processing={processing} transcript={liveText || transcript} lastCapture={lastCapture} level={level} />}
+      {recording && (liveText || transcript) && (
+        <div className="mb-3 rounded-2xl border border-primary/25 bg-primary/5 p-3 text-right text-lg font-black leading-8" dir="rtl">
+          {(liveText || transcript.slice(-180)).trim()}
+        </div>
+      )}
 
       {recording && (
         <div className="mb-3 space-y-1.5">
@@ -675,7 +772,7 @@ const PlateCard = memo(function PlateCard({ entry }: { entry: PlateEntry }) {
   const matched = !!entry.matchedPlate;
   const lettersSpaced = entry.letters.split("").join(" ");
   const digitsSpaced = entry.digits.split("").join(" ");
-  return <motion.div initial={{ opacity: 0, x: -20, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20 }} onClick={() => matched && setOpen((o) => !o)} className={`glass overflow-hidden rounded-2xl p-3 ${matched ? "border border-success/50 glow-success cursor-pointer" : !entry.complete ? "border border-warning/40" : "border border-border"}`}><div className="flex items-start gap-3"><div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${matched ? "bg-success/20 text-success" : !entry.complete ? "bg-warning/20 text-warning" : "bg-muted"}`}>{matched ? <CheckCircle2 className="h-5 w-5" /> : !entry.complete ? <AlertTriangle className="h-5 w-5" /> : <Car className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-xl font-black tracking-[0.3em]" dir="rtl"><span className="text-primary">{lettersSpaced}</span><span className="mx-2 text-muted-foreground">—</span><span>{digitsSpaced}</span></p><p className="text-[10px] text-muted-foreground">{matched ? "✓ مطابقة" : !entry.complete ? "غير مكتملة" : "غير موجودة بالقاعدة"} • {new Date(entry.spokenAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{entry.confidence < 0.85 && ` • ثقة ${Math.round(entry.confidence * 100)}%`}</p>{entry.suspectPart && <p className="mt-1 rounded-lg bg-warning/10 px-2 py-1 text-[10px] text-warning">⚠ جزء مشكوك: <span className="font-mono">{entry.suspectPart}</span>{entry.correctionNote && ` — ${entry.correctionNote}`}</p>}{!entry.complete && <MissingPlateParts entry={entry} />}</div></div><AnimatePresence>{open && matched && entry.matchedPlate && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 overflow-hidden border-t border-border pt-3 text-xs"><Row label="النوع" value={entry.matchedPlate.car_type} /><Row label="البنك" value={entry.matchedPlate.bank} /><Row label="الهيكل" value={entry.matchedPlate.chassis} /><Row label="التاريخ" value={entry.matchedPlate.plate_date} /></motion.div>}</AnimatePresence></motion.div>;
+  return <motion.div initial={{ opacity: 0, x: -20, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20 }} onClick={() => matched && setOpen((o) => !o)} className={`glass overflow-hidden rounded-2xl p-3 ${matched ? "border border-success/50 glow-success cursor-pointer" : !entry.complete ? "border border-warning/40" : "border border-border"}`}><div className="flex items-start gap-3"><div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${matched ? "bg-success/20 text-success" : !entry.complete ? "bg-warning/20 text-warning" : "bg-muted"}`}>{matched ? <CheckCircle2 className="h-5 w-5" /> : !entry.complete ? <AlertTriangle className="h-5 w-5" /> : <Car className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-xl font-black tracking-[0.3em]" dir="rtl"><span className="text-primary">{lettersSpaced}</span><span className="mx-2 text-muted-foreground">—</span><span>{digitsSpaced}</span></p><p className="text-[10px] text-muted-foreground">{matched ? "✓ مطابقة" : !entry.complete ? "غير مكتملة" : "غير موجودة بالقاعدة"} • {new Date(entry.spokenAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{entry.confidence < 0.85 && ` • ثقة ${Math.round(entry.confidence * 100)}%`}</p>{entry.spokenText && <p className="mt-1 rounded-lg bg-muted/50 px-2 py-1 text-xs font-bold leading-5" dir="rtl">{entry.spokenText}</p>}{entry.suspectPart && <p className="mt-1 rounded-lg bg-warning/10 px-2 py-1 text-[10px] text-warning">⚠ جزء مشكوك: <span className="font-mono">{entry.suspectPart}</span>{entry.correctionNote && ` — ${entry.correctionNote}`}</p>}{!entry.complete && <MissingPlateParts entry={entry} />}</div></div><AnimatePresence>{open && matched && entry.matchedPlate && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 overflow-hidden border-t border-border pt-3 text-xs"><Row label="النوع" value={entry.matchedPlate.car_type} /><Row label="البنك" value={entry.matchedPlate.bank} /><Row label="الهيكل" value={entry.matchedPlate.chassis} /><Row label="التاريخ" value={entry.matchedPlate.plate_date} /></motion.div>}</AnimatePresence></motion.div>;
 }, (prev, next) => {
   const a = prev.entry, b = next.entry;
   return a.id === b.id && a.digits === b.digits && a.letters === b.letters && a.complete === b.complete && !!a.matchedPlate === !!b.matchedPlate && a.spokenText === b.spokenText && a.correctionNote === b.correctionNote;
