@@ -117,10 +117,12 @@ function RecordPage() {
   const [lastCapture, setLastCapture] = useState<{ raw: string; complete: boolean; matched: boolean; at: number } | null>(null);
   const [geoOn, setGeoOn] = useState(false);
   const [geoError, setGeoError] = useState<string | null>(null);
+  const [geoPerm, setGeoPerm] = useState<PermissionState>("prompt");
   const [path, setPath] = useState<GeoPoint[]>([]);
 
   const currentPosRef = useRef<GeoPoint | null>(null);
-  const watchIdRef = useRef<number | null>(null);
+  const geoWatchRef = useRef<WatchHandle | null>(null);
+  const rawPathRef = useRef<GeoPoint[]>([]);
   const lastPointAtRef = useRef(0);
   const pathRef = useRef<GeoPoint[]>([]);
   const recorderRef = useRef<RecorderHandle | null>(null);
@@ -293,39 +295,49 @@ function RecordPage() {
     processChunkRef.current = (wav: Blob) => { void processChunk(wav); };
   }, [processChunk]);
 
-  function startGeoTracking() {
-    if (watchIdRef.current != null) return;
-    if (!("geolocation" in navigator)) {
+  async function ensureGeoPermission(): Promise<PermissionState> {
+    const cur = await checkGeoPermission();
+    setGeoPerm(cur);
+    if (cur === "granted") return cur;
+    if (cur === "unsupported") {
       setGeoError("الموقع الجغرافي غير مدعوم على هذا الجهاز");
-      return;
+      return cur;
     }
+    const asked = await requestGeoPermission();
+    setGeoPerm(asked);
+    if (asked === "denied") setGeoError("تم رفض إذن الموقع — فعّله من إعدادات التطبيق ثم أعد المحاولة");
+    return asked;
+  }
+
+  async function startGeoTracking() {
+    if (geoWatchRef.current) return;
+    const perm = await ensureGeoPermission();
+    if (perm !== "granted") return;
     setGeoError(null);
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (p) => {
-        const pt: GeoPoint = { lat: p.coords.latitude, lng: p.coords.longitude };
+    geoWatchRef.current = await watchGeo(
+      (raw) => {
+        const pt: GeoPoint = { lat: raw.lat, lng: raw.lng, t: Date.now(), acc: raw.acc };
         currentPosRef.current = pt;
         setGeoOn(true);
-        const now = Date.now();
-        setPath((prev) => {
-          const last = prev[prev.length - 1];
-          const moved = !last || haversine(last, pt) > 4;
-          const timed = now - lastPointAtRef.current > 2500;
-          if (!moved && !timed) return prev;
-          lastPointAtRef.current = now;
-          const next = [...prev, pt];
-          pathRef.current = next;
-          return next;
-        });
+        const prev = rawPathRef.current[rawPathRef.current.length - 1] ?? null;
+        if (!shouldAcceptPoint(prev, pt)) return;
+        rawPathRef.current = [...rawPathRef.current, pt];
+        const smoothed = smoothPath(rawPathRef.current);
+        pathRef.current = smoothed;
+        setPath(smoothed);
       },
-      (err) => { setGeoError(err.message || "تعذر قراءة الموقع"); setGeoOn(false); },
-      { enableHighAccuracy: true, maximumAge: 1500, timeout: 12000 },
+      (msg, code) => {
+        setGeoError(msg);
+        setGeoOn(false);
+        if (code === "denied") setGeoPerm("denied");
+      },
     );
   }
 
   function stopGeoTracking() {
-    if (watchIdRef.current != null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
+    if (geoWatchRef.current) {
+      void geoWatchRef.current.stop();
+      geoWatchRef.current = null;
     }
     setGeoOn(false);
   }
