@@ -555,6 +555,8 @@ function RecordPage() {
       if (!u.user) throw new Error("غير مسجّل");
       const matched = current.filter((e) => e.matchedPlate).length;
       const incomplete = current.filter((e) => !e.complete).length;
+      const duplicates = current.filter((e) => e.duplicateOfId && e.duplicateDecision === "same").length;
+      const unique = current.length - duplicates;
       const platePath = [...current]
         .reverse()
         .filter((e) => e.latitude != null && e.longitude != null)
@@ -570,6 +572,8 @@ function RecordPage() {
           total_detected: current.length,
           total_matched: matched,
           total_incomplete: incomplete,
+          total_unique: unique,
+          total_duplicates: duplicates,
           path: finalPath as unknown as never,
           start_latitude: first?.lat ?? null,
           start_longitude: first?.lng ?? null,
@@ -579,7 +583,9 @@ function RecordPage() {
         .single();
       if (error || !saved) throw error ?? new Error("تعذر حفظ الجلسة");
       if (current.length > 0) {
+        // Use the client-generated entry.id as the row id so duplicate_of_id references stay valid.
         const rows = [...current].reverse().map((e) => ({
+          id: e.id,
           session_id: saved.id,
           user_id: u.user!.id,
           spoken_text: e.spokenText,
@@ -593,6 +599,10 @@ function RecordPage() {
           correction_note: e.correctionNote ?? null,
           latitude: e.latitude ?? null,
           longitude: e.longitude ?? null,
+          duplicate_of_id: e.duplicateOfId ?? null,
+          duplicate_decision: e.duplicateDecision ?? null,
+          duplicate_distance_m: e.duplicateDistanceM ?? null,
+          duplicate_gap_seconds: e.duplicateGapSec ?? null,
         }));
         const { error: rowsErr } = await supabase.from("detected_plates").insert(rows);
         if (rowsErr) throw rowsErr;
