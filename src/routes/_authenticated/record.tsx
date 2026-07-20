@@ -9,7 +9,7 @@ import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
-import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, haversine as haversineGeo, type GeoPoint, type WatchHandle, type PermissionState } from "@/lib/geo";
+import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, type GeoPoint, type WatchHandle, type PermissionState } from "@/lib/geo";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -123,7 +123,7 @@ function RecordPage() {
   const currentPosRef = useRef<GeoPoint | null>(null);
   const geoWatchRef = useRef<WatchHandle | null>(null);
   const rawPathRef = useRef<GeoPoint[]>([]);
-  const lastPointAtRef = useRef(0);
+  // (path throttling now handled inside geo.ts via shouldAcceptPoint)
   const pathRef = useRef<GeoPoint[]>([]);
   const recorderRef = useRef<RecorderHandle | null>(null);
   const processChunkRef = useRef<(wav: Blob) => void>(() => undefined);
@@ -361,7 +361,7 @@ function RecordPage() {
       setPath([]);
       pathRef.current = [];
       currentPosRef.current = null;
-      lastPointAtRef.current = 0;
+      rawPathRef.current = [];
       setReviewOpen(false);
       setStartedAt(Date.now());
       setElapsed(0);
@@ -619,14 +619,7 @@ function formatTime(s: number): string {
   return `${m.toString().padStart(2, "0")}:${r.toString().padStart(2, "0")}`;
 }
 
-function haversine(a: GeoPoint, b: GeoPoint): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(s));
-}
+// (haversine is now provided by @/lib/geo)
 
 function missingPartsLabel(p: DetectedPlate): string | undefined {
   const missing: string[] = [];
