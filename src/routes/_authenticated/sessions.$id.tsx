@@ -2,7 +2,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "motion/react";
-import { ChevronRight, Download, FileText, CheckCircle2, AlertTriangle, Car, MapPin, ExternalLink, Play, Pause, Map as MapIcon, Wand2, Loader2 } from "lucide-react";
+import { ChevronRight, Download, FileText, CheckCircle2, AlertTriangle, Car, MapPin, ExternalLink, Play, Pause, Map as MapIcon, Wand2, Loader2, Copy } from "lucide-react";
+import { formatGap as formatGapAr, formatDistance as formatDistAr } from "@/lib/duplicate-detection";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -26,6 +27,10 @@ interface DetectedRow {
   matched_plate_id: string | null;
   latitude: number | null;
   longitude: number | null;
+  duplicate_of_id: string | null;
+  duplicate_decision: "same" | "different" | "unresolved" | null;
+  duplicate_distance_m: number | null;
+  duplicate_gap_seconds: number | null;
   plates?: {
     plate_raw: string;
     bank: string | null;
@@ -64,7 +69,7 @@ function SessionDetailPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("detected_plates")
-        .select("id, plate_raw, plate_normalized, is_matched, is_incomplete, detected_at, matched_plate_id, latitude, longitude, plates:matched_plate_id(plate_raw, bank, car_type, chassis, plate_date)")
+        .select("id, plate_raw, plate_normalized, is_matched, is_incomplete, detected_at, matched_plate_id, latitude, longitude, duplicate_of_id, duplicate_decision, duplicate_distance_m, duplicate_gap_seconds, plates:matched_plate_id(plate_raw, bank, car_type, chassis, plate_date)")
         .eq("session_id", id)
         .order("detected_at", { ascending: true });
       return (data ?? []) as unknown as DetectedRow[];
@@ -213,6 +218,12 @@ function SessionDetailPage() {
   const totalMatched = detected?.filter((d) => d.is_matched).length ?? 0;
   const totalInc = detected?.filter((d) => d.is_incomplete).length ?? 0;
   const totalUnknown = totalDet - totalMatched - totalInc;
+  const duplicates = detected?.filter((d) => d.duplicate_of_id && d.duplicate_decision === "same") ?? [];
+  const unresolvedDups = detected?.filter((d) => d.duplicate_of_id && d.duplicate_decision !== "same" && d.duplicate_decision !== "different") ?? [];
+  const totalDuplicates = (session as { total_duplicates?: number | null } | null)?.total_duplicates ?? duplicates.length;
+  const totalUnique = (session as { total_unique?: number | null } | null)?.total_unique ?? Math.max(totalDet - duplicates.length, 0);
+  const dupRows = [...duplicates, ...unresolvedDups];
+  const origById = new Map(detected?.map((d) => [d.id, d]) ?? []);
 
   return (
     <div className="px-5 pt-8">
@@ -222,11 +233,22 @@ function SessionDetailPage() {
       <h1 className="mb-1 text-xl font-black">تقرير الجلسة</h1>
       <p className="mb-4 text-xs text-muted-foreground">{new Date(session.started_at).toLocaleString("ar-EG")}</p>
 
-      <div className="mb-4 grid grid-cols-4 gap-2">
+      <div className="mb-3 grid grid-cols-4 gap-2">
         <StatCard label="مكتشفة" value={totalDet} active={filter === "all"} onClick={() => setFilter("all")} />
         <StatCard label="مطابقة" value={totalMatched} tone="success" active={filter === "matched"} onClick={() => setFilter("matched")} />
         <StatCard label="غير مكتملة" value={totalInc} tone="warning" active={filter === "incomplete"} onClick={() => setFilter("incomplete")} />
         <StatCard label="غير موجودة" value={totalUnknown} tone="muted" active={filter === "unknown"} onClick={() => setFilter("unknown")} />
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="glass rounded-xl border border-primary/40 p-3 text-center">
+          <p className="text-2xl font-black tabular-nums text-primary">{totalUnique}</p>
+          <p className="text-[10.5px] font-bold text-muted-foreground">سيارات فريدة (بعد الدمج)</p>
+        </div>
+        <div className="glass rounded-xl border border-warning/40 p-3 text-center">
+          <p className="text-2xl font-black tabular-nums text-warning">{totalDuplicates}</p>
+          <p className="text-[10.5px] font-bold text-muted-foreground">تكرارات مدموجة</p>
+        </div>
       </div>
 
       {(path.length > 0 || markers.length > 0) && (
@@ -316,7 +338,54 @@ function SessionDetailPage() {
         </button>
       </div>
 
+      {dupRows.length > 0 && (
+        <div className="mb-5 glass rounded-2xl border border-warning/30 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="flex items-center gap-1.5 text-sm font-black">
+              <Copy className="h-4 w-4 text-warning" /> تفاصيل التكرارات
+            </h2>
+            <span className="text-[10.5px] text-muted-foreground">{dupRows.length} سجل</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-border text-right text-muted-foreground">
+                  <th className="py-1.5 pr-1 font-bold">اللوحة</th>
+                  <th className="py-1.5 font-bold">الأصل</th>
+                  <th className="py-1.5 font-bold">الفاصل</th>
+                  <th className="py-1.5 font-bold">المسافة</th>
+                  <th className="py-1.5 font-bold">القرار</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dupRows.map((d) => {
+                  const orig = d.duplicate_of_id ? origById.get(d.duplicate_of_id) : null;
+                  const decision = d.duplicate_decision;
+                  const decisionLabel = decision === "same" ? "دُمج (نفس السيارة)" : decision === "different" ? "سيارة مختلفة" : "بحاجة مراجعة";
+                  const decisionCls = decision === "same" ? "bg-warning/15 text-warning" : decision === "different" ? "bg-success/15 text-success" : "bg-primary/15 text-primary";
+                  const gap = d.duplicate_gap_seconds ?? null;
+                  const dist = d.duplicate_distance_m ?? null;
+                  return (
+                    <tr key={d.id} className="border-b border-border/40 last:border-0">
+                      <td className="py-1.5 pr-1 font-mono font-bold" dir="rtl">{d.plate_raw ?? "—"}</td>
+                      <td className="py-1.5 font-mono text-muted-foreground" dir="rtl">{orig?.plate_raw ?? "—"}</td>
+                      <td className="py-1.5 tabular-nums text-muted-foreground">{gap != null ? formatGapAr(gap) : "—"}</td>
+                      <td className="py-1.5 tabular-nums text-muted-foreground">{dist != null ? formatDistAr(dist) : "—"}</td>
+                      <td className="py-1.5"><span className={`rounded-md px-1.5 py-0.5 text-[10px] font-black ${decisionCls}`}>{decisionLabel}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[10.5px] leading-5 text-muted-foreground">
+            تُعتبر اللوحة تكراراً إذا التُقطت في نفس الجلسة خلال نافذة زمنية قصيرة ومسافة قريبة من التقاطها الأول. القرار "دُمج" لا يُحسب ضمن السيارات الفريدة، بينما "سيارة مختلفة" يُحسب مستقلاً.
+          </p>
+        </div>
+      )}
+
       <div className="space-y-2 pb-6">
+
         {filtered.map((d, i) => (
           <motion.div
             id={`plate-${d.id}`}
