@@ -786,15 +786,48 @@ function PerfCell({ label, value, unit, highlight }: { label: string; value: str
   return <div className={`rounded-lg bg-background/70 p-1.5 ${highlight ? "text-warning" : ""}`}><p className="text-xs font-black tabular-nums">{value}<span className="text-[9px] font-normal text-muted-foreground">{unit}</span></p><p className="text-[9px] text-muted-foreground">{label}</p></div>;
 }
 
-const PlateCard = memo(function PlateCard({ entry }: { entry: PlateEntry }) {
+const PlateCard = memo(function PlateCard({ entry, allEntries, onReopenDuplicate }: { entry: PlateEntry; allEntries?: PlateEntry[]; onReopenDuplicate?: (e: PlateEntry) => void }) {
   const [open, setOpen] = useState(false);
   const matched = !!entry.matchedPlate;
   const lettersSpaced = entry.letters.split("").join(" ");
   const digitsSpaced = entry.digits.split("").join(" ");
-  return <motion.div initial={{ opacity: 0, x: -20, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20 }} onClick={() => matched && setOpen((o) => !o)} className={`glass overflow-hidden rounded-2xl p-3 ${matched ? "border border-success/50 glow-success cursor-pointer" : !entry.complete ? "border border-warning/40" : "border border-border"}`}><div className="flex items-start gap-3"><div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${matched ? "bg-success/20 text-success" : !entry.complete ? "bg-warning/20 text-warning" : "bg-muted"}`}>{matched ? <CheckCircle2 className="h-5 w-5" /> : !entry.complete ? <AlertTriangle className="h-5 w-5" /> : <Car className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="font-mono text-xl font-black tracking-[0.3em]"><span className="text-primary" dir="rtl">{lettersSpaced}</span><span className="mx-2 text-muted-foreground">—</span><span dir="ltr">{digitsSpaced}</span></p><p className="text-[10px] text-muted-foreground">{matched ? "✓ مطابقة" : !entry.complete ? "غير مكتملة" : "غير موجودة بالقاعدة"} • {new Date(entry.spokenAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{entry.confidence < 0.85 && ` • ثقة ${Math.round(entry.confidence * 100)}%`}</p>{entry.spokenText && <p className="mt-1 rounded-lg bg-muted/50 px-2 py-1 text-xs font-bold leading-5" dir="rtl">{entry.spokenText}</p>}{entry.suspectPart && <p className="mt-1 rounded-lg bg-warning/10 px-2 py-1 text-[10px] text-warning">⚠ جزء مشكوك: <span className="font-mono">{entry.suspectPart}</span>{entry.correctionNote && ` — ${entry.correctionNote}`}</p>}{!entry.complete && <MissingPlateParts entry={entry} />}</div></div><AnimatePresence>{open && matched && entry.matchedPlate && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 overflow-hidden border-t border-border pt-3 text-xs"><Row label="النوع" value={entry.matchedPlate.car_type} /><Row label="البنك" value={entry.matchedPlate.bank} /><Row label="الهيكل" value={entry.matchedPlate.chassis} /><Row label="التاريخ" value={entry.matchedPlate.plate_date} /></motion.div>}</AnimatePresence></motion.div>;
+  const isDup = !!entry.duplicateOfId && entry.duplicateDecision === "same";
+  const isUnresolved = !!entry.duplicateOfId && (entry.duplicateDecision === "unresolved" || !entry.duplicateDecision);
+  const origIndex = entry.duplicateOfId && allEntries ? allEntries.findIndex((x) => x.id === entry.duplicateOfId) : -1;
+  return (
+    <motion.div initial={{ opacity: 0, x: -20, scale: 0.95 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 20 }} onClick={() => matched && setOpen((o) => !o)} className={`glass overflow-hidden rounded-2xl p-3 ${isDup ? "border border-primary/40 bg-primary/5 opacity-80" : isUnresolved ? "border border-primary/60 bg-primary/10 ring-2 ring-primary/30" : matched ? "border border-success/50 glow-success cursor-pointer" : !entry.complete ? "border border-warning/40" : "border border-border"}`}>
+      {(isDup || isUnresolved) && (
+        <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-primary/15 px-2 py-1 text-[10.5px] font-bold text-primary">
+          <Copy className="h-3 w-3" />
+          {isDup ? "لوحة مُكرّرة" : "هل هي نفس السيارة؟"}
+          <span className="text-muted-foreground">{formatGap(entry.duplicateGapSec ?? 0)}{entry.duplicateDistanceM != null ? ` • ${formatDistance(entry.duplicateDistanceM)}` : ""}</span>
+          {origIndex >= 0 && <span className="text-muted-foreground">• #{allEntries!.length - origIndex}</span>}
+          {isUnresolved && onReopenDuplicate && (
+            <button onClick={(e) => { e.stopPropagation(); onReopenDuplicate(entry); }} className="ml-auto rounded-md bg-primary px-2 py-0.5 text-[10px] font-black text-primary-foreground">
+              راجِع الآن
+            </button>
+          )}
+          {isDup && onReopenDuplicate && (
+            <button onClick={(e) => { e.stopPropagation(); onReopenDuplicate(entry); }} className="ml-auto rounded-md border border-primary/40 px-2 py-0.5 text-[10px] font-bold text-primary">تراجع</button>
+          )}
+        </div>
+      )}
+      <div className="flex items-start gap-3">
+        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${matched ? "bg-success/20 text-success" : !entry.complete ? "bg-warning/20 text-warning" : "bg-muted"}`}>{matched ? <CheckCircle2 className="h-5 w-5" /> : !entry.complete ? <AlertTriangle className="h-5 w-5" /> : <Car className="h-5 w-5" />}</div>
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-xl font-black tracking-[0.3em]"><span className="text-primary" dir="rtl">{lettersSpaced}</span><span className="mx-2 text-muted-foreground">—</span><span dir="ltr">{digitsSpaced}</span></p>
+          <p className="text-[10px] text-muted-foreground">{matched ? "✓ مطابقة" : !entry.complete ? "غير مكتملة" : "غير موجودة بالقاعدة"} • {new Date(entry.spokenAt).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}{entry.confidence < 0.85 && ` • ثقة ${Math.round(entry.confidence * 100)}%`}</p>
+          {entry.spokenText && <p className="mt-1 rounded-lg bg-muted/50 px-2 py-1 text-xs font-bold leading-5" dir="rtl">{entry.spokenText}</p>}
+          {entry.suspectPart && <p className="mt-1 rounded-lg bg-warning/10 px-2 py-1 text-[10px] text-warning">⚠ جزء مشكوك: <span className="font-mono">{entry.suspectPart}</span>{entry.correctionNote && ` — ${entry.correctionNote}`}</p>}
+          {!entry.complete && <MissingPlateParts entry={entry} />}
+        </div>
+      </div>
+      <AnimatePresence>{open && matched && entry.matchedPlate && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 overflow-hidden border-t border-border pt-3 text-xs"><Row label="النوع" value={entry.matchedPlate.car_type} /><Row label="البنك" value={entry.matchedPlate.bank} /><Row label="الهيكل" value={entry.matchedPlate.chassis} /><Row label="التاريخ" value={entry.matchedPlate.plate_date} /></motion.div>}</AnimatePresence>
+    </motion.div>
+  );
 }, (prev, next) => {
   const a = prev.entry, b = next.entry;
-  return a.id === b.id && a.digits === b.digits && a.letters === b.letters && a.complete === b.complete && !!a.matchedPlate === !!b.matchedPlate && a.spokenText === b.spokenText && a.correctionNote === b.correctionNote;
+  return a.id === b.id && a.digits === b.digits && a.letters === b.letters && a.complete === b.complete && !!a.matchedPlate === !!b.matchedPlate && a.spokenText === b.spokenText && a.correctionNote === b.correctionNote && a.duplicateDecision === b.duplicateDecision && a.duplicateOfId === b.duplicateOfId;
 });
 
 function MissingPlateParts({ entry }: { entry: PlateEntry }) {
