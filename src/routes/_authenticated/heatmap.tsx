@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Flame, MapPin, CalendarDays, Loader2, Layers } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import "leaflet.heat";
+
 
 export const Route = createFileRoute("/_authenticated/heatmap")({
   component: HeatmapPage,
