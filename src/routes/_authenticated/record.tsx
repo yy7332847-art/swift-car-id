@@ -5,9 +5,10 @@ import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles } from "lucide-react";
 import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
-import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
+import { extractPlates, plateAppearsInText, formatPlateParts, type DetectedPlate } from "@/lib/plate-utils";
+
 
 export const Route = createFileRoute("/_authenticated/record")({
   component: RecordPage,
@@ -64,6 +65,9 @@ function RecordPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  // Transient "just captured" state — drives the live status pill.
+  const [lastCapture, setLastCapture] = useState<{ raw: string; complete: boolean; matched: boolean; at: number } | null>(null);
+
 
   const recorderRef = useRef<RecorderHandle | null>(null);
   const pendingRef = useRef(0);
