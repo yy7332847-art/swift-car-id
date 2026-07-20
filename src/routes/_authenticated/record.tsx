@@ -388,6 +388,20 @@ function RecordPage() {
       toast.warning("قم برفع ملف Excel أولاً");
       return;
     }
+    // GPS pre-flight before opening the mic — makes background/permission
+    // issues visible before the user starts talking.
+    setPreflightLoading(true);
+    setPreflightOpen(true);
+    try {
+      const pf = await runGeoPreflight();
+      setPreflight(pf);
+    } finally {
+      setPreflightLoading(false);
+    }
+  }
+
+  async function confirmAndStart() {
+    setPreflightOpen(false);
     try {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return;
