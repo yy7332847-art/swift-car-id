@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiTranscribeRouteImport } from './routes/api/transcribe'
 import { Route as AuthenticatedUploadRouteImport } from './routes/_authenticated/upload'
 import { Route as AuthenticatedStatusRouteImport } from './routes/_authenticated/status'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedRecordRouteImport } from './routes/_authenticated/record'
 import { Route as AuthenticatedPackagesRouteImport } from './routes/_authenticated/packages'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
@@ -51,6 +52,11 @@ const AuthenticatedUploadRoute = AuthenticatedUploadRouteImport.update({
 const AuthenticatedStatusRoute = AuthenticatedStatusRouteImport.update({
   id: '/status',
   path: '/status',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedRecordRoute = AuthenticatedRecordRouteImport.update({
@@ -103,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/home': typeof AuthenticatedHomeRoute
   '/packages': typeof AuthenticatedPackagesRoute
   '/record': typeof AuthenticatedRecordRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/status': typeof AuthenticatedStatusRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/api/transcribe': typeof ApiTranscribeRoute
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/home': typeof AuthenticatedHomeRoute
   '/packages': typeof AuthenticatedPackagesRoute
   '/record': typeof AuthenticatedRecordRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/status': typeof AuthenticatedStatusRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/api/transcribe': typeof ApiTranscribeRoute
@@ -135,6 +143,7 @@ export interface FileRoutesById {
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/packages': typeof AuthenticatedPackagesRoute
   '/_authenticated/record': typeof AuthenticatedRecordRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/status': typeof AuthenticatedStatusRoute
   '/_authenticated/upload': typeof AuthenticatedUploadRoute
   '/api/transcribe': typeof ApiTranscribeRoute
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/packages'
     | '/record'
+    | '/settings'
     | '/status'
     | '/upload'
     | '/api/transcribe'
@@ -167,6 +177,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/packages'
     | '/record'
+    | '/settings'
     | '/status'
     | '/upload'
     | '/api/transcribe'
@@ -183,6 +194,7 @@ export interface FileRouteTypes {
     | '/_authenticated/home'
     | '/_authenticated/packages'
     | '/_authenticated/record'
+    | '/_authenticated/settings'
     | '/_authenticated/status'
     | '/_authenticated/upload'
     | '/api/transcribe'
@@ -241,6 +253,13 @@ declare module '@tanstack/react-router' {
       path: '/status'
       fullPath: '/status'
       preLoaderRoute: typeof AuthenticatedStatusRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/record': {
@@ -308,6 +327,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedPackagesRoute: typeof AuthenticatedPackagesRoute
   AuthenticatedRecordRoute: typeof AuthenticatedRecordRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedStatusRoute: typeof AuthenticatedStatusRoute
   AuthenticatedUploadRoute: typeof AuthenticatedUploadRoute
   AuthenticatedSessionsIdRoute: typeof AuthenticatedSessionsIdRoute
@@ -320,6 +340,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedPackagesRoute: AuthenticatedPackagesRoute,
   AuthenticatedRecordRoute: AuthenticatedRecordRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedStatusRoute: AuthenticatedStatusRoute,
   AuthenticatedUploadRoute: AuthenticatedUploadRoute,
   AuthenticatedSessionsIdRoute: AuthenticatedSessionsIdRoute,

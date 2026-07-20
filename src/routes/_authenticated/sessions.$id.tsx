@@ -2,12 +2,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "motion/react";
-import { ChevronRight, Download, FileText, CheckCircle2, AlertTriangle, Car, MapPin, ExternalLink, Play, Pause, Share2, Map as MapIcon, Wand2, Loader2 } from "lucide-react";
+import { ChevronRight, Download, FileText, CheckCircle2, AlertTriangle, Car, MapPin, ExternalLink, Play, Pause, Map as MapIcon, Wand2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { TrackingMap, openInMaps } from "@/components/TrackingMap";
+import { ExportPreview } from "@/components/ExportPreview";
 import { pathToGPX, pathToKML, shareOrDownload, rebuildPath, type GeoPoint, type PlateWaypoint } from "@/lib/geo";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -47,6 +48,7 @@ function SessionDetailPage() {
   const [rebuilt, setRebuilt] = useState<GeoPoint[] | null>(null);
   const [rebuildProgress, setRebuildProgress] = useState<number | null>(null);
   const [useRebuilt, setUseRebuilt] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const playRef = useRef<number | null>(null);
 
   const { data: session } = useQuery({
@@ -121,15 +123,22 @@ function SessionDetailPage() {
 
   function resetPlayback() { setPlaying(false); setPlaybackIdx(null); }
 
-  async function exportTrack(kind: "gpx" | "kml") {
-    if (path.length < 2) { toast.info("لا توجد إحداثيات كافية للتصدير"); return; }
-    const name = `session-${id.slice(0, 8)}.${kind}`;
+  const allWaypoints: PlateWaypoint[] = useMemo(() => (detected ?? [])
+    .filter((d) => d.latitude != null && d.longitude != null)
+    .map((d) => ({
+      lat: d.latitude!, lng: d.longitude!, label: d.plate_raw ?? "",
+      t: new Date(d.detected_at).getTime(),
+      status: d.is_matched ? "matched" : d.is_incomplete ? "incomplete" : "detected",
+    })), [detected]);
+
+  async function exportTrackWith(opts: { kind: "gpx" | "kml"; includeWaypoints: boolean; useSmoothed: boolean }) {
+    const chosen = opts.useSmoothed && rebuilt ? rebuilt : rawPath;
+    if (chosen.length < 2) { toast.info("لا توجد إحداثيات كافية للتصدير"); return; }
+    const name = `session-${id.slice(0, 8)}.${opts.kind}`;
     const label = `PlateCheck ${new Date(session?.started_at ?? Date.now()).toLocaleString()}`;
-    const waypoints: PlateWaypoint[] = includeWaypoints ? (detected ?? [])
-      .filter((d) => d.latitude != null && d.longitude != null)
-      .map((d) => ({ lat: d.latitude!, lng: d.longitude!, label: d.plate_raw ?? "", t: new Date(d.detected_at).getTime(), status: d.is_matched ? "matched" : d.is_incomplete ? "incomplete" : "detected" })) : [];
-    const content = kind === "gpx" ? pathToGPX(path, { name: label, waypoints }) : pathToKML(path, { name: label, waypoints });
-    const mime = kind === "gpx" ? "application/gpx+xml" : "application/vnd.google-earth.kml+xml";
+    const waypoints = opts.includeWaypoints ? allWaypoints : [];
+    const content = opts.kind === "gpx" ? pathToGPX(chosen, { name: label, waypoints }) : pathToKML(chosen, { name: label, waypoints });
+    const mime = opts.kind === "gpx" ? "application/gpx+xml" : "application/vnd.google-earth.kml+xml";
     const result = await shareOrDownload(name, content, mime);
     toast.success(result === "shared" ? "تمت المشاركة" : "تم تنزيل الملف");
   }
@@ -267,14 +276,12 @@ function SessionDetailPage() {
                 <input type="checkbox" checked={includeWaypoints} onChange={(e) => setIncludeWaypoints(e.target.checked)} className="accent-primary" />
                 إدراج نقاط اللوحات كمحددات في GPX/KML
               </label>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <button onClick={() => exportTrack("gpx")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
-                  <Share2 className="h-3.5 w-3.5 text-primary" /> مشاركة GPX
-                </button>
-                <button onClick={() => exportTrack("kml")} className="glass inline-flex items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-bold">
-                  <MapIcon className="h-3.5 w-3.5 text-success" /> مشاركة KML
-                </button>
-              </div>
+              <button
+                onClick={() => setPreviewOpen(true)}
+                className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary p-2.5 text-xs font-black text-primary-foreground shadow-md shadow-primary/20"
+              >
+                <MapIcon className="h-3.5 w-3.5" /> معاينة وتصدير المسار (GPX/KML)
+              </button>
               <div className="mt-3 rounded-2xl border border-primary/30 bg-primary/5 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-black"><Wand2 className="h-3.5 w-3.5 text-primary" /> إعادة بناء بيانات الخريطة</span>
@@ -351,6 +358,15 @@ function SessionDetailPage() {
           </p>
         )}
       </div>
+
+      <ExportPreview
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        onConfirm={exportTrackWith}
+        rawPath={rawPath}
+        smoothedPath={rebuilt}
+        waypoints={allWaypoints}
+      />
     </div>
   );
 }

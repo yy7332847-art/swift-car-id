@@ -69,6 +69,11 @@ export function isAndroid(): boolean {
   if (w.Capacitor?.getPlatform?.() === "android") return true;
   return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 }
+export function isIOS(): boolean {
+  const w = window as unknown as { Capacitor?: { getPlatform?: () => string } };
+  if (w.Capacitor?.getPlatform?.() === "ios") return true;
+  return typeof navigator !== "undefined" && /iPad|iPhone|iPod/i.test(navigator.userAgent);
+}
 
 async function loadCap(): Promise<CapGeoloc | null> {
   if (capLoaded) return capGeoloc;
@@ -278,20 +283,38 @@ export interface AcceptOpts {
   bufferSize?: number;
   /** true to relax quality checks (e.g. indoor start). */
   batterySaver?: boolean;
+  /** Optional user-configurable overrides from Settings page. */
+  config?: {
+    stationaryBelow?: number;
+    walkingBelow?: number;
+    intervalStationarySec?: number;
+    intervalWalkingSec?: number;
+    intervalDrivingSec?: number;
+    maxAccuracyMeters?: number;
+    enabled?: boolean;
+  };
 }
 export function shouldAcceptPoint(prev: GeoPoint | null, next: GeoPoint, opts: AcceptOpts = {}): boolean {
-  const maxAcc = opts.batterySaver ? 80 : 60;
+  const cfg = opts.config ?? {};
+  const configEnabled = cfg.enabled !== false;
+  const maxAcc = cfg.maxAccuracyMeters ?? (opts.batterySaver ? 80 : 60);
   if ((next.acc ?? 0) > maxAcc) return false;
   if (!prev) return true;
   const dt = ((next.t ?? Date.now()) - (prev.t ?? Date.now())) / 1000;
   const d = haversine(prev, next);
   if (dt > 0 && d / dt > 50) return false; // impossible speed
 
-  // Dynamic min interval: stationary → 6s, walking → 3s, driving → 1s.
   const speed = opts.speed ?? (dt > 0 ? d / dt : 0);
   const sizeBoost = (opts.bufferSize ?? 0) > 800 ? 2 : (opts.bufferSize ?? 0) > 400 ? 1.5 : 1;
-  const minInterval = (speed < 0.5 ? 6 : speed < 2 ? 3 : 1) * sizeBoost;
-  const minDistance = speed < 0.5 ? 5 : 3;
+  const stationaryBelow = cfg.stationaryBelow ?? 0.5;
+  const walkingBelow = cfg.walkingBelow ?? 2;
+  const iStat = cfg.intervalStationarySec ?? 6;
+  const iWalk = cfg.intervalWalkingSec ?? 3;
+  const iDrive = cfg.intervalDrivingSec ?? 1;
+  const minInterval = configEnabled
+    ? (speed < stationaryBelow ? iStat : speed < walkingBelow ? iWalk : iDrive) * sizeBoost
+    : iDrive;
+  const minDistance = speed < stationaryBelow ? 5 : 3;
   if (dt < minInterval && d < minDistance) return false;
   return true;
 }
