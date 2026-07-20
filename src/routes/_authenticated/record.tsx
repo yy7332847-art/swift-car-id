@@ -143,6 +143,10 @@ function RecordPage() {
   const growableRef = useRef<Map<string, { entryId: string; digits: string }>>(new Map());
   const finalizedRef = useRef<Map<string, number>>(new Map());
   const restoredRef = useRef(false);
+  const perfBufferRef = useRef<PerfSample[]>([]);
+  const lastChunkAtRef = useRef<number>(0);
+  const [perfStats, setPerfStats] = useState<PerfStats>({ count: 0, avgChunkGapMs: 0, avgSttMs: 0, avgParseMs: 0, avgMatchMs: 0, avgTotalMs: 0, lastLagMs: 0, queue: 0 });
+  const draftSaveTimerRef = useRef<number | null>(null);
 
   const applyEntries = useCallback((next: PlateEntry[]) => {
     entriesRef.current = next;
