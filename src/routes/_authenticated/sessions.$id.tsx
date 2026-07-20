@@ -125,10 +125,28 @@ function SessionDetailPage() {
     if (path.length < 2) { toast.info("لا توجد إحداثيات كافية للتصدير"); return; }
     const name = `session-${id.slice(0, 8)}.${kind}`;
     const label = `PlateCheck ${new Date(session?.started_at ?? Date.now()).toLocaleString()}`;
-    const content = kind === "gpx" ? pathToGPX(path, label) : pathToKML(path, label);
+    const waypoints: PlateWaypoint[] = includeWaypoints ? (detected ?? [])
+      .filter((d) => d.latitude != null && d.longitude != null)
+      .map((d) => ({ lat: d.latitude!, lng: d.longitude!, label: d.plate_raw ?? "", t: new Date(d.detected_at).getTime(), status: d.is_matched ? "matched" : d.is_incomplete ? "incomplete" : "detected" })) : [];
+    const content = kind === "gpx" ? pathToGPX(path, { name: label, waypoints }) : pathToKML(path, { name: label, waypoints });
     const mime = kind === "gpx" ? "application/gpx+xml" : "application/vnd.google-earth.kml+xml";
     const result = await shareOrDownload(name, content, mime);
     toast.success(result === "shared" ? "تمت المشاركة" : "تم تنزيل الملف");
+  }
+
+  async function handleRebuild() {
+    if (rawPath.length < 3) { toast.info("لا يوجد مسار كافٍ لإعادة البناء"); return; }
+    setRebuildProgress(0);
+    try {
+      const out = await rebuildPath(rawPath, (pct) => setRebuildProgress(pct), { batterySaver: false });
+      setRebuilt(out);
+      setUseRebuilt(true);
+      toast.success(`تمت إعادة البناء — ${rawPath.length} → ${out.length} نقطة`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل إعادة البناء");
+    } finally {
+      setRebuildProgress(null);
+    }
   }
 
   function exportExcel() {
