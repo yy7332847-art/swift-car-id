@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Flame, MapPin, CalendarDays, Loader2, Layers } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import "leaflet.heat";
+
 
 export const Route = createFileRoute("/_authenticated/heatmap")({
   component: HeatmapPage,
@@ -199,34 +199,39 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
   }, []);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    if (heatRef.current) {
-      map.removeLayer(heatRef.current);
-      heatRef.current = null;
-    }
-    if (points.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const map = mapRef.current;
+      if (!map) return;
+      await import("leaflet.heat");
+      if (cancelled) return;
+      if (heatRef.current) {
+        map.removeLayer(heatRef.current);
+        heatRef.current = null;
+      }
+      if (points.length === 0) return;
 
-    // Weight by status: matched hits are strongest
-    const heatData: [number, number, number][] = points.map((p) => [
-      p.lat,
-      p.lng,
-      p.status === "matched" ? 1 : p.status === "unknown" ? 0.7 : 0.4,
-    ]);
-    const layer = L.heatLayer(heatData, {
-      radius: intensity,
-      blur: Math.round(intensity * 0.7),
-      maxZoom: 17,
-      minOpacity: 0.35,
-      gradient: { 0.2: "#22d3ee", 0.4: "#4ade80", 0.6: "#facc15", 0.8: "#fb923c", 1.0: "#ef4444" },
-    });
-    layer.addTo(map);
-    heatRef.current = layer;
+      const heatData: [number, number, number][] = points.map((p) => [
+        p.lat,
+        p.lng,
+        p.status === "matched" ? 1 : p.status === "unknown" ? 0.7 : 0.4,
+      ]);
+      const layer = (L as unknown as { heatLayer: (d: unknown, o: unknown) => L.Layer }).heatLayer(heatData, {
+        radius: intensity,
+        blur: Math.round(intensity * 0.7),
+        maxZoom: 17,
+        minOpacity: 0.35,
+        gradient: { 0.2: "#22d3ee", 0.4: "#4ade80", 0.6: "#facc15", 0.8: "#fb923c", 1.0: "#ef4444" },
+      });
+      layer.addTo(map);
+      heatRef.current = layer;
 
-    // Fit bounds to points
-    const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
-    if (bounds.isValid()) map.fitBounds(bounds.pad(0.15), { animate: true });
+      const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
+      if (bounds.isValid()) map.fitBounds(bounds.pad(0.15), { animate: true });
+    })();
+    return () => { cancelled = true; };
   }, [points, intensity]);
+
 
   useEffect(() => {
     const layer = markerLayerRef.current;
