@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 // Offline readiness audit — scans dist/ for external network dependencies that
 // would break the app when installed on a device without internet.
-// Usage: bun run build && node scripts/offline-audit.mjs
+// Usage: npm run build:android && node scripts/offline-audit.mjs
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
-const DIST = "dist";
+const DIST = existsSync("dist-capacitor") ? "dist-capacitor" : "dist";
 const ROOT = process.cwd();
 const HERE = join(ROOT, DIST);
 
 const RED = "\x1b[31m", YEL = "\x1b[33m", GRN = "\x1b[32m", BLU = "\x1b[34m", BOLD = "\x1b[1m", NC = "\x1b[0m";
 
 if (!existsSync(HERE)) {
-  console.error(`${RED}✗ مجلد ${DIST}/ غير موجود. شغّل أولاً: bun run build${NC}`);
+  console.error(`${RED}✗ مجلد ${DIST}/ غير موجود. شغّل أولاً: npm run build:android${NC}`);
   process.exit(1);
 }
 
