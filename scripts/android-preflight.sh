@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Android build preflight — catches common Gradle/JDK/SDK/AGP mismatches
-# BEFORE running `bunx cap open android` so you don't waste time in Studio.
+# BEFORE running `npx cap open android` so you don't waste time in Studio.
 # Usage: bash scripts/android-preflight.sh
 set -u
 
@@ -33,16 +33,16 @@ else
   fix "ثبّت Android Studio ثم export ANDROID_HOME=\$HOME/Library/Android/sdk (macOS) أو \$HOME/Android/Sdk (Linux)"
 fi
 
-hdr "3) Bun & Node"
-if command -v bun >/dev/null 2>&1; then ok "bun $(bun -v)"; else err "bun غير موجود"; fix "curl -fsSL https://bun.sh/install | bash"; fi
+hdr "3) npm & Node"
+if command -v npm >/dev/null 2>&1; then ok "npm $(npm -v)"; else err "npm غير موجود"; fix "ثبّت Node.js 20+ لأنه يحتوي npm"; fi
 if command -v node >/dev/null 2>&1; then
   NV=$(node -v | tr -d 'v' | cut -d. -f1)
   [ "$NV" -ge 20 ] && ok "node v$(node -v | tr -d 'v')" || warn "node v$(node -v) — الأفضل 20+"
 fi
 
 hdr "4) ملفات المشروع"
-[ -d "android" ] && ok "مجلد android موجود" || { warn "مجلد android غير موجود"; fix "شغّل: bunx cap add android"; }
-[ -d "dist" ] && ok "مجلد dist موجود" || { warn "لم يتم البناء بعد"; fix "شغّل: bun run build"; }
+[ -d "android" ] && ok "مجلد android موجود" || { warn "مجلد android غير موجود"; fix "شغّل: npx cap add android"; }
+[ -f "dist-capacitor/index.html" ] && ok "dist-capacitor/index.html موجود" || { warn "مخرج Android الثابت غير جاهز"; fix "شغّل: npm run build:android"; }
 [ -f "capacitor.config.ts" ] && ok "capacitor.config.ts موجود" || err "capacitor.config.ts مفقود"
 
 hdr "5) توافق إصدارات Gradle/AGP/SDK"
@@ -79,7 +79,7 @@ if [ -f "$MAN" ]; then
   for P in INTERNET ACCESS_FINE_LOCATION RECORD_AUDIO FOREGROUND_SERVICE; do
     grep -q "android.permission.$P" "$MAN" && ok "$P" || warn "$P مفقود — راجع ANDROID.md"
   done
-else warn "AndroidManifest.xml غير موجود — شغّل bunx cap add android"; fi
+else warn "AndroidManifest.xml غير موجود — شغّل npx cap add android"; fi
 
 hdr "7) capacitor.config.ts — منع الشاشة البيضاء"
 if [ -f "capacitor.config.ts" ]; then
@@ -88,6 +88,7 @@ if [ -f "capacitor.config.ts" ]; then
     fix "احذف server.url من capacitor.config.ts أو اجعله فقط في التطوير"
   else ok "server.url غير مضبوط (جيد للإنتاج)"; fi
   grep -q 'androidScheme.*https' capacitor.config.ts && ok "androidScheme=https" || warn "androidScheme غير https — قد يمنع بعض APIs offline"
+  grep -q 'webDir: "dist-capacitor"' capacitor.config.ts && ok "webDir=dist-capacitor" || { err "webDir لا يشير إلى dist-capacitor"; fix "اضبط capacitor.config.ts على webDir: \"dist-capacitor\""; }
 fi
 
 hdr "8) مساحة القرص و Gradle cache"
@@ -101,12 +102,12 @@ ok "مساحة القرص المتاحة: $AVAIL"
 echo
 if [ $FAIL -gt 0 ]; then
   echo -e "${RED}${BOLD}✗ فشل: $FAIL مشاكل حرجة، $WARN تحذيرات${NC}"
-  echo -e "أصلح الأخطاء أعلاه قبل تشغيل ${BOLD}bunx cap open android${NC}"
+  echo -e "أصلح الأخطاء أعلاه قبل تشغيل ${BOLD}npx cap open android${NC}"
   exit 1
 elif [ $WARN -gt 0 ]; then
   echo -e "${YELLOW}${BOLD}⚠ $WARN تحذيرات — البناء قد يعمل لكن راجع الملاحظات${NC}"
   exit 0
 else
   echo -e "${GREEN}${BOLD}✓ كل الفحوصات نجحت — جاهز للبناء${NC}"
-  echo -e "التالي: ${BOLD}bun run build && bunx cap sync android && bunx cap open android${NC}"
+  echo -e "التالي: ${BOLD}npm run android:open${NC}"
 fi
