@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createClient } from "@supabase/supabase-js";
 
 // Transcribe an uploaded audio blob using Lovable AI Gateway (openai/gpt-4o-transcribe).
-// Requires Authorization: Bearer <supabase access token> so we can attribute the call.
+// Requires Authorization: Bearer <supabase access token> — verified server-side.
 export const Route = createFileRoute("/api/transcribe")({
   server: {
     handlers: {
@@ -13,13 +14,33 @@ export const Route = createFileRoute("/api/transcribe")({
         if (!authHeader.startsWith("Bearer ")) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
         }
+        const token = authHeader.slice("Bearer ".length).trim();
+        if (!token || token.split(".").length !== 3) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        }
+
+        const SUPABASE_URL = process.env.SUPABASE_URL;
+        const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
+        if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+          return new Response(JSON.stringify({ error: "Auth not configured" }), { status: 500 });
+        }
+        try {
+          const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+            auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+          });
+          const { data, error } = await supabase.auth.getClaims(token);
+          if (error || !data?.claims?.sub) {
+            return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+          }
+        } catch {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        }
 
         const inForm = await request.formData();
         const audio = inForm.get("audio");
         if (!audio || typeof audio === "string") {
           return new Response(JSON.stringify({ error: "No audio" }), { status: 400 });
         }
-
 
         const upstream = new FormData();
         const asFile = audio as File;
@@ -28,7 +49,6 @@ export const Route = createFileRoute("/api/transcribe")({
         upstream.append("file", audio as Blob, name);
         upstream.append("language", "ar");
         upstream.append("temperature", "0");
-        // Raw dictation only: keep what was actually spoken, without plate inference or filtering.
         upstream.append("prompt", "انسخ الكلام العربي المسموع حرفياً فقط كما قيل. لا تضف كلمات، لا تكمل لوحة ناقصة، لا تحوّل النص إلى لوحة، ولا تحذف التحيات أو الكلمات العادية إذا كانت مسموعة.");
 
         try {
@@ -43,7 +63,6 @@ export const Route = createFileRoute("/api/transcribe")({
             return new Response(JSON.stringify({ error: bodyText || "Transcription failed", status: res.status }), { status: res.status });
           }
           return new Response(bodyText, { headers: { "Content-Type": "application/json" } });
-
         } catch (err) {
           console.error(err);
           return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
