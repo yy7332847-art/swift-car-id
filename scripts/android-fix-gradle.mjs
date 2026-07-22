@@ -59,10 +59,14 @@ function replaceOrAppend(content, regexp, replacement, appendLine) {
 function patchBuildGradle(path) {
   let content = read(path);
   if (!content) return false;
-  content = content.replace(
-    /(buildscript\s*\{\s*)/,
-    `$1\n    ext.kotlin_version = '${TARGETS.kotlin}'\n`,
-  );
+  if (/ext\.kotlin_version\s*=/.test(content)) {
+    content = content.replace(/ext\.kotlin_version\s*=\s*['"][^'"]+['"]/, `ext.kotlin_version = '${TARGETS.kotlin}'`);
+  } else {
+    content = content.replace(
+      /(buildscript\s*\{\s*)/,
+      `$1\n    ext.kotlin_version = '${TARGETS.kotlin}'\n`,
+    );
+  }
   content = replaceOrAppend(
     content,
     /classpath ['"]com\.android\.tools\.build:gradle:[^'"]+['"]/,
