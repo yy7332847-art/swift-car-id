@@ -16,6 +16,7 @@ import { Toaster } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { NativeSafeErrorBoundary } from "@/components/NativeSafeErrorBoundary";
 import { registerPWA } from "@/lib/pwa";
+import { INSTALL_PROMPT_CAPTURE_SCRIPT } from "@/lib/install-prompt";
 
 
 function NotFoundComponent() {
@@ -87,6 +88,7 @@ function RootShell({ children }: { children: ReactNode }) {
       <head>
         <HeadContent />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_CAPTURE_SCRIPT }} />
       </head>
       <body>{children}<Scripts /></body>
     </html>
