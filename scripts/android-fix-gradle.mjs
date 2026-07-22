@@ -77,6 +77,11 @@ function patchBuildGradle(path) {
       /(classpath ['"]com\.android\.tools\.build:gradle:[^'"]+['"])/,
       `$1\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${TARGETS.kotlin}"`,
     );
+  } else {
+    content = content.replace(
+      /classpath ['"]org\.jetbrains\.kotlin:kotlin-gradle-plugin:[^'"]+['"]/,
+      `classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${TARGETS.kotlin}"`,
+    );
   }
   write(path, content);
   return true;
@@ -90,6 +95,8 @@ function patchGradleProperties(path) {
     "android.enableJetifier": "true",
     // Compatibility mode avoids known R8 full-mode crashes with mixed Kotlin metadata.
     "android.enableR8.fullMode": "false",
+    "android.javaCompile.suppressSourceTargetDeprecationWarning": "true",
+    "kotlin.jvm.target.validation.mode": "warning",
   };
   for (const [key, value] of Object.entries(settings)) {
     content = replaceOrAppend(content, new RegExp(`^${key.replace(/[.]/g, "\\.")}=.*$`, "m"), `${key}=${value}`);

@@ -452,55 +452,66 @@ function RecordPage() {
   }, [processChunk]);
 
   async function ensureGeoPermission(): Promise<PermissionState> {
-    const cur = await checkGeoPermission();
-    setGeoPerm(cur);
-    if (cur === "granted") return cur;
-    if (cur === "unsupported") {
-      setGeoError("الموقع الجغرافي غير مدعوم على هذا الجهاز");
-      return cur;
+    try {
+      const cur = await checkGeoPermission();
+      setGeoPerm(cur);
+      if (cur === "granted") return cur;
+      if (cur === "unsupported") {
+        setGeoError("الموقع الجغرافي غير مدعوم على هذا الجهاز");
+        return cur;
+      }
+      const asked = await requestGeoPermission();
+      setGeoPerm(asked);
+      if (asked === "denied") setGeoError("تم رفض إذن الموقع — فعّله من إعدادات التطبيق ثم أعد المحاولة");
+      return asked;
+    } catch (e) {
+      setGeoError(e instanceof Error ? e.message : "تعذر فحص إذن الموقع");
+      return "unsupported";
     }
-    const asked = await requestGeoPermission();
-    setGeoPerm(asked);
-    if (asked === "denied") setGeoError("تم رفض إذن الموقع — فعّله من إعدادات التطبيق ثم أعد المحاولة");
-    return asked;
   }
 
   async function startGeoTracking() {
     if (geoWatchRef.current) return;
-    const perm = await ensureGeoPermission();
-    if (perm !== "granted") return;
-    setGeoError(null);
-    geoWatchRef.current = await watchGeo(
-      (raw) => {
-        const pt: GeoPoint = { lat: raw.lat, lng: raw.lng, t: Date.now(), acc: raw.acc, spd: raw.spd ?? undefined, hdg: raw.hdg ?? undefined };
-        currentPosRef.current = pt;
-        setGeoOn(true);
-        const prev = rawPathRef.current[rawPathRef.current.length - 1] ?? null;
-        const speed = pt.spd ?? (prev && pt.t && prev.t ? (Math.hypot(pt.lat - prev.lat, pt.lng - prev.lng) * 111000) / Math.max(0.1, (pt.t - prev.t) / 1000) : 0);
-        if (!prev) {
-          rawPathRef.current = [pt];
-          pathRef.current = [pt];
-          setPath([pt]);
-          return;
-        }
-        if (!shouldAcceptPoint(prev, pt, { speed, bufferSize: rawPathRef.current.length, config: loadSettings().batterySaver })) return;
-        rawPathRef.current = [...rawPathRef.current, pt];
-        const smoothed = smoothPath(rawPathRef.current);
-        pathRef.current = smoothed;
-        setPath(smoothed);
-      },
-      (msg, code) => {
-        setGeoError(msg);
-        setGeoOn(false);
-        if (code === "denied") setGeoPerm("denied");
-      },
-      { background: true, backgroundTitle: "PlateCheck — تسجيل جلسة", backgroundMessage: "يتم تتبع مسار العربية أثناء التسجيل" },
-    );
+    try {
+      const perm = await ensureGeoPermission();
+      if (perm !== "granted") return;
+      setGeoError(null);
+      geoWatchRef.current = await watchGeo(
+        (raw) => {
+          const pt: GeoPoint = { lat: raw.lat, lng: raw.lng, t: Date.now(), acc: raw.acc, spd: raw.spd ?? undefined, hdg: raw.hdg ?? undefined };
+          currentPosRef.current = pt;
+          setGeoOn(true);
+          const prev = rawPathRef.current[rawPathRef.current.length - 1] ?? null;
+          const speed = pt.spd ?? (prev && pt.t && prev.t ? (Math.hypot(pt.lat - prev.lat, pt.lng - prev.lng) * 111000) / Math.max(0.1, (pt.t - prev.t) / 1000) : 0);
+          if (!prev) {
+            rawPathRef.current = [pt];
+            pathRef.current = [pt];
+            setPath([pt]);
+            return;
+          }
+          if (!shouldAcceptPoint(prev, pt, { speed, bufferSize: rawPathRef.current.length, config: loadSettings().batterySaver })) return;
+          rawPathRef.current = [...rawPathRef.current, pt];
+          const smoothed = smoothPath(rawPathRef.current);
+          pathRef.current = smoothed;
+          setPath(smoothed);
+        },
+        (msg, code) => {
+          setGeoError(msg);
+          setGeoOn(false);
+          if (code === "denied") setGeoPerm("denied");
+        },
+        { background: true, backgroundTitle: "PlateCheck — تسجيل جلسة", backgroundMessage: "يتم تتبع مسار العربية أثناء التسجيل" },
+      );
+    } catch (e) {
+      setGeoOn(false);
+      setGeoError(e instanceof Error ? e.message : "تعذر تشغيل تتبع الموقع — التسجيل مستمر بدون خريطة");
+      toast.warning("تعذر تشغيل GPS — التسجيل مستمر بدون خريطة");
+    }
   }
 
   function stopGeoTracking() {
     if (geoWatchRef.current) {
-      void geoWatchRef.current.stop();
+      void Promise.resolve(geoWatchRef.current.stop()).catch(() => undefined);
       geoWatchRef.current = null;
     }
     setGeoOn(false);
@@ -1025,7 +1036,7 @@ function GeoPreflightSheet({ loading, result, onCancel, onContinue, onRetry }: {
             {result.native && !result.backgroundAvailable && (
               <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-[11px] leading-5">
                 عند إغلاق شاشة الجهاز أثناء الجلسة سيتوقف GPS. لتفعيل الخلفية على Android نفّذ:
-                <br/><code className="mt-1 inline-block rounded bg-background/70 px-1.5 py-0.5">bun add @capacitor-community/background-geolocation</code> ثم <code className="rounded bg-background/70 px-1.5 py-0.5">npx cap sync android</code>
+                <br/><code className="mt-1 inline-block rounded bg-background/70 px-1.5 py-0.5">npm install @capacitor-community/background-geolocation</code> ثم <code className="rounded bg-background/70 px-1.5 py-0.5">npx cap sync android</code>
               </div>
             )}
           </div>

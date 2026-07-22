@@ -61,15 +61,18 @@ let bgGeoloc: BackgroundGeoloc | null = null;
 let bgLoaded = false;
 
 function isNative(): boolean {
+  if (typeof window === "undefined") return false;
   const w = window as unknown as { Capacitor?: { isNativePlatform?: () => boolean; getPlatform?: () => string } };
   return !!w.Capacitor?.isNativePlatform?.();
 }
 export function isAndroid(): boolean {
+  if (typeof window === "undefined") return false;
   const w = window as unknown as { Capacitor?: { getPlatform?: () => string } };
   if (w.Capacitor?.getPlatform?.() === "android") return true;
   return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 }
 export function isIOS(): boolean {
+  if (typeof window === "undefined") return false;
   const w = window as unknown as { Capacitor?: { getPlatform?: () => string } };
   if (w.Capacitor?.getPlatform?.() === "ios") return true;
   return typeof navigator !== "undefined" && /iPad|iPhone|iPod/i.test(navigator.userAgent);
@@ -209,47 +212,70 @@ export async function watchGeo(
   if (opts.background) {
     const bg = await loadBgGeoloc();
     if (bg) {
-      const id = await bg.addWatcher(
-        {
-          backgroundTitle: opts.backgroundTitle ?? "PlateCheck — تتبع نشط",
-          backgroundMessage: opts.backgroundMessage ?? "يتم تسجيل مسار الجلسة",
-          requestPermissions: true,
-          stale: false,
-          distanceFilter: 2,
-        },
-        (loc, err) => {
-          if (err) return onError(err.message || "تعذر قراءة الموقع", err.code === "NOT_AUTHORIZED" ? "denied" : "unavailable");
-          if (!loc) return;
-          onPoint({ lat: loc.latitude, lng: loc.longitude, acc: loc.accuracy, spd: loc.speed ?? null, hdg: loc.bearing ?? null });
-        },
-      );
-      return { stop: () => bg.removeWatcher({ id }) };
+      try {
+        const id = await bg.addWatcher(
+          {
+            backgroundTitle: opts.backgroundTitle ?? "PlateCheck — تتبع نشط",
+            backgroundMessage: opts.backgroundMessage ?? "يتم تسجيل مسار الجلسة",
+            requestPermissions: true,
+            stale: false,
+            distanceFilter: 2,
+          },
+          (loc, err) => {
+            try {
+              if (err) return onError(err.message || "تعذر قراءة الموقع", err.code === "NOT_AUTHORIZED" ? "denied" : "unavailable");
+              if (!loc) return;
+              onPoint({ lat: loc.latitude, lng: loc.longitude, acc: loc.accuracy, spd: loc.speed ?? null, hdg: loc.bearing ?? null });
+            } catch (e) {
+              onError(e instanceof Error ? e.message : "تعذر معالجة نقطة GPS", "unavailable");
+            }
+          },
+        );
+        return { stop: () => bg.removeWatcher({ id }).catch(() => undefined) };
+      } catch (e) {
+        onError(e instanceof Error ? e.message : "تعذر تشغيل تتبع الخلفية — سيتم استخدام التتبع العادي", "unavailable");
+      }
     }
     // Fall through to standard watch if plugin not installed.
   }
 
   const cap = await loadCap();
   if (cap) {
-    const id = await cap.watchPosition({ enableHighAccuracy: true, timeout: 15000 }, (pos, err) => {
-      if (err) return onError(err.message || "تعذر قراءة الموقع");
-      if (!pos) return;
-      onPoint({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, spd: pos.coords.speed ?? null, hdg: pos.coords.heading ?? null });
-    });
-    return { stop: () => cap.clearWatch({ id }) };
+    try {
+      const id = await cap.watchPosition({ enableHighAccuracy: true, timeout: 15000 }, (pos, err) => {
+        try {
+          if (err) return onError(err.message || "تعذر قراءة الموقع");
+          if (!pos) return;
+          onPoint({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, spd: pos.coords.speed ?? null, hdg: pos.coords.heading ?? null });
+        } catch (e) {
+          onError(e instanceof Error ? e.message : "تعذر معالجة نقطة GPS", "unavailable");
+        }
+      });
+      return { stop: () => cap.clearWatch({ id }).catch(() => undefined) };
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "تعذر تشغيل إضافة الموقع", "unavailable");
+      return { stop: () => undefined };
+    }
   }
   if (!("geolocation" in navigator)) {
     onError("الموقع الجغرافي غير مدعوم على هذا الجهاز", "unavailable");
     return { stop: () => undefined };
   }
   const wid = navigator.geolocation.watchPosition(
-    (p) => onPoint({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy ?? 0, spd: p.coords.speed ?? null, hdg: p.coords.heading ?? null }),
+    (p) => {
+      try {
+        onPoint({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy ?? 0, spd: p.coords.speed ?? null, hdg: p.coords.heading ?? null });
+      } catch (e) {
+        onError(e instanceof Error ? e.message : "تعذر معالجة نقطة GPS", "unavailable");
+      }
+    },
     (err) => {
       const code = err.code === err.PERMISSION_DENIED ? "denied" : err.code === err.TIMEOUT ? "timeout" : "unavailable";
       onError(err.message || "تعذر قراءة الموقع", code);
     },
     { enableHighAccuracy: true, timeout: 15000, maximumAge: 1500 },
   );
-  return { stop: () => navigator.geolocation.clearWatch(wid) };
+  return { stop: () => { try { navigator.geolocation.clearWatch(wid); } catch { /* noop */ } } };
 }
 
 /** Haversine distance in meters. */

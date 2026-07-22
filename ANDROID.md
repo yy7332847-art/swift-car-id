@@ -26,6 +26,7 @@ npm install
 npm run build:android
 npx cap add android
 npm run android:sync
+npm run android:doctor
 npx cap open android
 ```
 
@@ -43,9 +44,10 @@ test -f dist-capacitor/index.html && echo "OK: Android web build جاهز"
 npm run android:preflight
 npm run offline:audit
 npm run android:fix
+npm run android:doctor
 ```
 
-هذا يفحص JDK/SDK/Gradle، ويتأكد أن `capacitor.config.ts` يستخدم `webDir: "dist-capacitor"` ولا يحتوي على `server.url`، ويتأكد أن `index.html` يستخدم مسارات نسبية `./assets/...` وليس `/assets/...` حتى لا تظهر الشاشة البيضاء داخل Android WebView.
+هذا يفحص JDK/SDK/Gradle، توافق حزم Capacitor Native Bridge، إعدادات Kotlin/R8، ويتأكد أن `capacitor.config.ts` يستخدم `webDir: "dist-capacitor"` ولا يحتوي على `server.url`، ويتأكد أن `index.html` يستخدم مسارات نسبية `./assets/...` وليس `/assets/...` حتى لا تظهر الشاشة البيضاء داخل Android WebView.
 
 ## بعد أي تعديل
 
@@ -115,6 +117,8 @@ distributionUrl=https\://services.gradle.org/distributions/gradle-8.14.3-all.zip
 android.useAndroidX=true
 android.enableJetifier=true
 android.enableR8.fullMode=false
+android.javaCompile.suppressSourceTargetDeprecationWarning=true
+kotlin.jvm.target.validation.mode=warning
 org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
 ```
 
