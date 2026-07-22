@@ -2,11 +2,11 @@ import type { CapacitorConfig } from "@capacitor/cli";
 
 // Capacitor config for wrapping the built web app as Android/iOS.
 // IMPORTANT: TanStack Start builds SSR output in `dist/`; Android WebView needs
-// a real static index.html. Run `npm run build:android` to create `dist-capacitor/`.
+// a real static index.html. Run `npm run build:android` to create `dist/`.
 const config: CapacitorConfig = {
   appId: "app.platecheck.mobile",
   appName: "PlateCheck",
-  webDir: "dist-capacitor",
+  webDir: "dist",
   server: {
     androidScheme: "https",
   },
