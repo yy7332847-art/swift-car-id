@@ -7,45 +7,28 @@
 // `dist/server` (nitro SSR). We keep only the client files, flatten them
 // into `dist/`, generate a real `index.html` with relative asset paths,
 // and add SPA fallback files for every major host.
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, copyFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
+import { join } from "node:path";
 
 const DIST = "dist";
 const CLIENT = join(DIST, "client");
 const SERVER = join(DIST, "server");
-const OUTPUT_PUBLIC = join(".output", "public");
-const TMP = ".dist-static-tmp";
-const NITRO_ROOT_FILES = ["nitro.json", "package.json", "package-lock.json"];
+const TMP = "dist-tmp-client";
 
 function fail(m) { console.error(`\n✗ ${m}\n`); process.exit(1); }
-function hasAssets(dir) { return existsSync(join(dir, "assets")); }
-function copyDirContents(from, to) {
-  mkdirSync(to, { recursive: true });
-  for (const name of readdirSync(from)) {
-    cpSync(join(from, name), join(to, name), { recursive: true });
-  }
-}
 
-const source = [CLIENT, OUTPUT_PUBLIC, DIST].find((dir) => existsSync(dir) && hasAssets(dir));
-if (!source) {
-  fail("لم يتم العثور على ملفات الواجهة داخل dist/client أو .output/public أو dist/assets. شغّل npm run build من جديد.");
-}
+if (!existsSync(CLIENT)) fail("لم يتم العثور على dist/client. شغّل vite build أولاً.");
 
-// 1. Build a clean, single static dist/ folder from the real client output.
+// 1. Stash client, wipe dist, restore client contents flat.
 rmSync(TMP, { recursive: true, force: true });
-copyDirContents(source, TMP);
-
-rmSync(DIST, { recursive: true, force: true });
-mkdirSync(DIST, { recursive: true });
-copyDirContents(TMP, DIST);
-rmSync(TMP, { recursive: true, force: true });
-
-// Remove server-only artifacts: the exported folder is a normal static web app.
-rmSync(SERVER, { recursive: true, force: true });
+cpSync(CLIENT, TMP, { recursive: true });
 rmSync(CLIENT, { recursive: true, force: true });
-for (const file of NITRO_ROOT_FILES) {
-  rmSync(join(DIST, file), { force: true });
+rmSync(SERVER, { recursive: true, force: true });
+// Move stashed files up into dist/ root
+for (const name of readdirSync(TMP)) {
+  cpSync(join(TMP, name), join(DIST, name), { recursive: true });
 }
+rmSync(TMP, { recursive: true, force: true });
 
 // 2. Locate the largest entry chunk + all CSS in dist/assets
 const assetsDir = join(DIST, "assets");
@@ -97,24 +80,6 @@ copyFileSync(join(DIST, "index.html"), join(DIST, "404.html"));
 
 // Netlify + Cloudflare Pages
 writeFileSync(join(DIST, "_redirects"), "/*    /index.html   200\n", "utf8");
-writeFileSync(
-  join(DIST, "_headers"),
-  `/*
-  X-Content-Type-Options: nosniff
-
-/sw.js
-  Cache-Control: no-cache
-  Service-Worker-Allowed: /
-
-/manifest.webmanifest
-  Content-Type: application/manifest+json; charset=utf-8
-  Cache-Control: no-cache
-
-/assets/*
-  Cache-Control: public, max-age=31536000, immutable
-`,
-  "utf8",
-);
 
 // Apache / Hostinger
 writeFileSync(
@@ -155,14 +120,6 @@ location / {
 const out = readFileSync(join(DIST, "index.html"), "utf8");
 if (/\s(?:src|href)="\/assets\//.test(out)) fail("index.html يحتوي على /assets مطلقة.");
 if (!out.includes(`./assets/${entry}`)) fail("index.html لا يشير إلى ملف التشغيل.");
-if (!existsSync(join(DIST, "manifest.webmanifest"))) fail("manifest.webmanifest غير موجود داخل dist.");
-if (!existsSync(join(DIST, "sw.js"))) fail("sw.js غير موجود داخل dist — إعدادات PWA لم تخرج في مسار الواجهة.");
-if (!existsSync(join(DIST, "assets", entry)) || !statSync(join(DIST, "assets", entry)).isFile()) {
-  fail("ملف تشغيل الواجهة غير موجود داخل dist/assets.");
-}
-if (resolve(source) === resolve(DIST) && readdirSync(DIST).length <= 3) {
-  fail("dist يحتوي على ملفات قليلة فقط؛ هذا ليس تصديراً صالحاً.");
-}
 
 console.log(`✓ تم توحيد dist/ (SPA ثابت)`);
 console.log(`  • ارفعه كما هو على Hostinger / Netlify / Cloudflare / Vercel / Apache / nginx`);

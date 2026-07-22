@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build && node scripts/dist-prepare.mjs",
+    "build": "vite build",
     "build:dev": "vite build --mode development",
-    "build:app": "npm run build",
-    "build:android": "npm run build",
-    "build:web": "npm run build",
-    "android:sync": "npm run build && node scripts/android-fix-gradle.mjs && npx cap sync android && node scripts/android-fix-gradle.mjs",
+    "build:app": "npm run build && node scripts/dist-prepare.mjs",
+    "build:android": "npm run build:app",
+    "build:web": "npm run build:app",
+    "android:sync": "npm run build:app && node scripts/android-fix-gradle.mjs && npx cap sync android && node scripts/android-fix-gradle.mjs",
     "android:fix": "node scripts/android-fix-gradle.mjs",
     "android:open": "npm run android:sync && npx cap open android",
     "android:doctor": "npm run android:preflight && npm run offline:audit",
@@ -88,7 +88,6 @@
     "tw-animate-css": "^1.3.4",
     "vaul": "^1.1.2",
     "vite-tsconfig-paths": "^6.0.2",
-    "workbox-window": "^7.4.1",
     "xlsx": "^0.18.5",
     "zod": "^3.24.2"
   },
@@ -112,7 +111,6 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.16",
-    "vite-plugin-pwa": "^1.3.0",
-    "workbox-build": "^7.4.1"
+    "vite-plugin-pwa": "^1.3.0"
   }
 }
