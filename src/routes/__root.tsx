@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { THEME_INIT_SCRIPT } from "../lib/theme";
 import { Toaster } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { NativeSafeErrorBoundary } from "@/components/NativeSafeErrorBoundary";
 
 
 function NotFoundComponent() {
@@ -102,7 +103,9 @@ function RootComponent() {
   }, [router, queryClient]);
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <NativeSafeErrorBoundary>
+        <Outlet />
+      </NativeSafeErrorBoundary>
       <Toaster position="top-center" richColors closeButton dir="rtl" />
     </QueryClientProvider>
   );

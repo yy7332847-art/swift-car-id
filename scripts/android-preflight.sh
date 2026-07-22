@@ -40,6 +40,39 @@ if command -v node >/dev/null 2>&1; then
   [ "$NV" -ge 20 ] && ok "node v$(node -v | tr -d 'v')" || warn "node v$(node -v) — الأفضل 20+"
 fi
 
+hdr "3.5) توافق حزم Capacitor Native Bridge"
+if [ -f "package.json" ] && command -v node >/dev/null 2>&1; then
+  CAP_DATA=$(node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+for (const name of ['@capacitor/core', '@capacitor/cli', '@capacitor/android', '@capacitor/geolocation']) {
+  const v = deps[name] ?? '';
+  const major = (v.match(/[0-9]+/) ?? [''])[0];
+  console.log(`${name}|${v}|${major}`);
+}
+console.log(`@capacitor-community/background-geolocation|${deps['@capacitor-community/background-geolocation'] ?? ''}|community`);
+NODE
+)
+  CORE_MAJOR=""
+  while IFS='|' read -r NAME VER MAJOR; do
+    [ -z "$NAME" ] && continue
+    if [ -z "$VER" ]; then
+      err "$NAME غير مثبت"
+      fix "شغّل: npm install $NAME ثم npx cap sync android"
+      continue
+    fi
+    ok "$NAME $VER"
+    if [ "$NAME" = "@capacitor/core" ]; then CORE_MAJOR="$MAJOR"; fi
+    if [[ "$NAME" == @capacitor/* ]] && [ "$NAME" != "@capacitor/core" ] && [ -n "$CORE_MAJOR" ] && [ "$MAJOR" != "$CORE_MAJOR" ]; then
+      err "$NAME على major=$MAJOR بينما core على major=$CORE_MAJOR — هذا يسبب Bridge crashes"
+      fix "وحّد حزم Capacitor على نفس الـ major ثم شغّل: npm install && npx cap sync android"
+    fi
+  done <<< "$CAP_DATA"
+else
+  warn "تعذر فحص package.json"
+fi
+
 hdr "4) ملفات المشروع"
 [ -d "android" ] && ok "مجلد android موجود" || { warn "مجلد android غير موجود"; fix "شغّل: npx cap add android"; }
 [ -f "dist-capacitor/index.html" ] && ok "dist-capacitor/index.html موجود" || { warn "مخرج Android الثابت غير جاهز"; fix "شغّل: npm run build:android"; }
@@ -53,9 +86,23 @@ WRAP="android/gradle/wrapper/gradle-wrapper.properties"
 if [ -f "$VARS" ]; then
   CSDK=$(grep -oE 'compileSdkVersion\s*=\s*[0-9]+' "$VARS" | grep -oE '[0-9]+' | head -1)
   TSDK=$(grep -oE 'targetSdkVersion\s*=\s*[0-9]+' "$VARS" | grep -oE '[0-9]+' | head -1)
+  KOTLIN=$(grep -oE "kotlin_version\s*=\s*'[^']+'" "$VARS" | cut -d\' -f2 | head -1)
   [ "${CSDK:-0}" -ge 36 ] && ok "compileSdk=$CSDK" || { err "compileSdk=$CSDK منخفض"; fix "شغّل: npm run android:fix أو عدّل $VARS: compileSdkVersion = 36"; }
   [ "${TSDK:-0}" -ge 36 ] && ok "targetSdk=$TSDK" || { err "targetSdk=$TSDK منخفض"; fix "شغّل: npm run android:fix أو عدّل $VARS: targetSdkVersion = 36"; }
+  if [ -n "${KOTLIN:-}" ]; then
+    KMAJ=$(echo "$KOTLIN" | cut -d. -f1); KMIN=$(echo "$KOTLIN" | cut -d. -f2)
+    if [ "$KMAJ" -gt 2 ] || { [ "$KMAJ" -eq 2 ] && [ "${KMIN:-0}" -ge 2 ]; }; then ok "Kotlin $KOTLIN"; else err "Kotlin $KOTLIN قديم وقد يسبب parsing Kotlin metadata"; fix "شغّل: npm run android:fix"; fi
+  else
+    warn "kotlin_version غير موجود في $VARS"
+  fi
 else warn "$VARS مفقود"; fi
+
+PROPS="android/gradle.properties"
+if [ -f "$PROPS" ]; then
+  grep -q '^android.enableR8.fullMode=false' "$PROPS" && ok "R8 full mode معطّل" || { err "android.enableR8.fullMode=false غير موجود"; fix "شغّل: npm run android:fix"; }
+  grep -q '^android.javaCompile.suppressSourceTargetDeprecationWarning=true' "$PROPS" && ok "تحذيرات Java source/target مكبوتة" || { warn "خاصية suppressSourceTargetDeprecationWarning غير موجودة"; fix "شغّل: npm run android:fix"; }
+  grep -q '^kotlin.jvm.target.validation.mode=warning' "$PROPS" && ok "Kotlin JVM target validation مضبوط" || { warn "kotlin.jvm.target.validation.mode غير مضبوط"; fix "شغّل: npm run android:fix"; }
+else warn "$PROPS مفقود"; fi
 
 if [ -f "$BUILD" ]; then
   AGP=$(grep -oE "com.android.tools.build:gradle:[0-9.]+" "$BUILD" | head -1 | cut -d: -f3)
