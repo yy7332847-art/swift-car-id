@@ -105,6 +105,7 @@ function RootComponent() {
     });
     return () => sub.subscription.unsubscribe();
   }, [router, queryClient]);
+  useEffect(() => { void registerPWA(); }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <NativeSafeErrorBoundary>
