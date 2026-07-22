@@ -1,6 +1,10 @@
-// PWA service-worker registration with user-approved update flow.
-// Safe in Lovable preview (refuses to register there), safe in Capacitor native.
 import { toast } from "sonner";
+import { registerSW } from "virtual:pwa-register";
+
+type UpdateServiceWorker = (reloadPage?: boolean) => Promise<void>;
+
+let started = false;
+let updateServiceWorker: UpdateServiceWorker | undefined;
 
 function shouldSkipRegistration(): boolean {
   if (typeof window === "undefined") return true;
@@ -28,64 +32,70 @@ function shouldSkipRegistration(): boolean {
   return false;
 }
 
-async function unregisterAll(): Promise<void> {
-  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
-  const regs = await navigator.serviceWorker.getRegistrations().catch(() => []);
-  await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
+function registrationScriptPath(reg: ServiceWorkerRegistration): string {
+  const worker = reg.active ?? reg.waiting ?? reg.installing;
+  if (!worker?.scriptURL) return "";
+  try {
+    return new URL(worker.scriptURL).pathname;
+  } catch {
+    return worker.scriptURL;
+  }
 }
 
-function promptUpdate(worker: ServiceWorker) {
-  toast("تحديث جديد متاح", {
-    description: "تم تجهيز نسخة أحدث من التطبيق. اضغط للتحديث الآن.",
-    duration: Infinity,
-    action: {
-      label: "تحديث الآن",
-      onClick: () => {
-        worker.postMessage({ type: "SKIP_WAITING" });
-      },
-    },
-  });
+async function unregisterAppShellWorkers(): Promise<void> {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+  const regs = await navigator.serviceWorker.getRegistrations().catch(() => []);
+  await Promise.all(
+    regs
+      .filter((reg) => registrationScriptPath(reg).endsWith("/sw.js"))
+      .map((reg) => reg.unregister().catch(() => false)),
+  );
 }
 
 export async function registerPWA(): Promise<void> {
   if (shouldSkipRegistration()) {
-    // Clean up any stale registration when in preview/dev
-    if (typeof navigator !== "undefined" && "serviceWorker" in navigator && !import.meta.env.PROD) {
-      await unregisterAll();
-    }
+    await unregisterAppShellWorkers();
     return;
   }
+  if (started) return;
+  started = true;
 
   try {
-    const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-
-    // Case 1: worker already waiting when we register (previous tab installed it)
-    if (reg.waiting && navigator.serviceWorker.controller) {
-      promptUpdate(reg.waiting);
-    }
-
-    // Case 2: new worker starts installing → wait until installed, then prompt
-    reg.addEventListener("updatefound", () => {
-      const installing = reg.installing;
-      if (!installing) return;
-      installing.addEventListener("statechange", () => {
-        if (installing.state === "installed" && navigator.serviceWorker.controller) {
-          promptUpdate(installing);
-        }
-      });
+    updateServiceWorker = registerSW({
+      immediate: true,
+      onNeedRefresh() {
+        toast("تحديث جديد متاح", {
+          description: "تم تجهيز نسخة أحدث من التطبيق. اضغط للتحديث الآن.",
+          duration: Infinity,
+          action: {
+            label: "تحديث الآن",
+            onClick: () => {
+              void updateServiceWorker?.(true);
+            },
+          },
+        });
+      },
+      onOfflineReady() {
+        toast.success("التطبيق جاهز للعمل بدون إنترنت");
+      },
+      onRegisteredSW(_swUrl, registration) {
+        if (!registration) return;
+        setInterval(() => registration.update().catch(() => {}), 60 * 60 * 1000);
+      },
+      onRegisterError(error) {
+        console.warn("[pwa] SW registration failed", error);
+      },
     });
-
-    // Reload once when the new worker takes control
-    let refreshing = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
-    });
-
-    // Periodic update check (every 60 min while tab open)
-    setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
   } catch (err) {
     console.warn("[pwa] SW registration failed", err);
+  }
+}
+
+export function isInstallContextBlocked(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
   }
 }

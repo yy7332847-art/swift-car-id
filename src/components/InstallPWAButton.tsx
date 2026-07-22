@@ -2,10 +2,16 @@ import { useEffect, useState } from "react";
 import { Download, CheckCircle2, Share, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
+import { isInstallContextBlocked } from "@/lib/pwa";
+import type { BeforeInstallPromptEvent } from "@/lib/install-prompt";
 
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+type InstallEnv = {
+  ready: boolean;
+  standalone: boolean;
+  ios: boolean;
+  native: boolean;
+  promptReady: boolean;
+  blocked: boolean;
 };
 
 function isStandalone() {
@@ -28,6 +34,20 @@ function isCapacitorNative() {
   return !!w.Capacitor?.isNativePlatform?.();
 }
 
+function readInstallEnv(): InstallEnv {
+  if (typeof window === "undefined") {
+    return { ready: false, standalone: false, ios: false, native: false, promptReady: false, blocked: false };
+  }
+  return {
+    ready: true,
+    standalone: isStandalone(),
+    ios: isIOS(),
+    native: isCapacitorNative(),
+    promptReady: !!window.__plateInstallPrompt,
+    blocked: isInstallContextBlocked(),
+  };
+}
+
 /**
  * Install-as-app button. Behavior:
  * - Chrome/Edge/Android: uses `beforeinstallprompt` for a one-tap native install.
@@ -36,53 +56,72 @@ function isCapacitorNative() {
  */
 export function InstallPWAButton({ className = "" }: { className?: string }) {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
+  const [env, setEnv] = useState<InstallEnv>(() => readInstallEnv());
   const [installed, setInstalled] = useState(false);
   const [showIOSHelp, setShowIOSHelp] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    const sync = () => {
+      const next = readInstallEnv();
+      setEnv(next);
+      if (window.__plateInstallPrompt) setDeferred(window.__plateInstallPrompt);
+      if (next.standalone || window.__platePwaInstalled) setInstalled(true);
+    };
+    sync();
+
     if (isCapacitorNative()) return; // Already inside a native shell
-    if (isStandalone()) {
+    if (isStandalone() || window.__platePwaInstalled) {
       setInstalled(true);
       return;
     }
     const handler = (e: Event) => {
       e.preventDefault();
       setDeferred(e as BeforeInstallPromptEvent);
+      setEnv(readInstallEnv());
     };
     const installedHandler = () => {
       setInstalled(true);
       setDeferred(null);
+      window.__plateInstallPrompt = null;
       toast.success("تم تثبيت التطبيق بنجاح");
     };
     window.addEventListener("beforeinstallprompt", handler);
+    window.addEventListener("platecheck-beforeinstallprompt", sync);
     window.addEventListener("appinstalled", installedHandler);
+    window.addEventListener("platecheck-appinstalled", installedHandler);
     return () => {
       window.removeEventListener("beforeinstallprompt", handler);
+      window.removeEventListener("platecheck-beforeinstallprompt", sync);
       window.removeEventListener("appinstalled", installedHandler);
+      window.removeEventListener("platecheck-appinstalled", installedHandler);
     };
   }, []);
 
-  if (isCapacitorNative() || installed) return null;
+  if (env.native || installed) return null;
 
-  const supportsPrompt = !!deferred;
-  const iosFallback = isIOS() && !supportsPrompt;
+  const supportsPrompt = !!deferred || !!window.__plateInstallPrompt;
+  const iosFallback = env.ios && !supportsPrompt;
 
   async function handleInstall() {
-    if (deferred) {
+    const promptEvent = deferred ?? window.__plateInstallPrompt ?? null;
+    if (promptEvent) {
       setBusy(true);
       try {
-        await deferred.prompt();
-        const { outcome } = await deferred.userChoice;
+        await promptEvent.prompt();
+        const { outcome } = await promptEvent.userChoice;
         if (outcome === "accepted") {
           toast.success("جاري التثبيت...");
+          setInstalled(true);
         } else {
           toast("تم إلغاء التثبيت");
         }
       } catch {
         toast.error("تعذّر بدء التثبيت");
       } finally {
+        window.__plateInstallPrompt = null;
         setDeferred(null);
+        setEnv(readInstallEnv());
         setBusy(false);
       }
       return;
@@ -91,7 +130,11 @@ export function InstallPWAButton({ className = "" }: { className?: string }) {
       setShowIOSHelp(true);
       return;
     }
-    toast("متصفحك لا يدعم التثبيت التلقائي. افتح القائمة واختر «تثبيت التطبيق».");
+    if (env.blocked) {
+      toast("افتح الرابط المنشور في تبويب مستقل خارج المعاينة، ثم اضغط زر التثبيت.");
+      return;
+    }
+    toast("نافذة التثبيت الأصلية لم تجهز بعد. من قائمة المتصفح اختر «تثبيت التطبيق»، أو أعد الضغط بعد ثوانٍ.");
   }
 
   // If the browser hasn't fired beforeinstallprompt yet AND it's not iOS,
