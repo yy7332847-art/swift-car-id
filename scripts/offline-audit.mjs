@@ -5,7 +5,7 @@
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
-const DIST = existsSync("dist-capacitor") ? "dist-capacitor" : "dist";
+const DIST = existsSync("dist") ? "dist" : "dist";
 const ROOT = process.cwd();
 const HERE = join(ROOT, DIST);
 
@@ -136,7 +136,7 @@ if (hasAbsoluteBundledAssets) {
   console.log(`${RED}${BOLD}الفحص فشل — شغّل npm run build:android بعد ضبط base: \"./\".${NC}`);
   process.exit(1);
 } else if (sourceResults.fail.length === 0 && results.fail.length > 0) {
-  console.log(`${YEL}${BOLD}تنبيه: الموارد الخارجية موجودة في مخرجات قديمة فقط. شغّل npm run build:android لإعادة توليد dist-capacitor.${NC}`);
+  console.log(`${YEL}${BOLD}تنبيه: الموارد الخارجية موجودة في مخرجات قديمة فقط. شغّل npm run build:android لإعادة توليد dist.${NC}`);
 } else if (results.fail.length > 0) {
   console.log(`${RED}${BOLD}الفحص فشل — أصلح الموارد الخارجية أعلاه.${NC}`);
   process.exit(1);

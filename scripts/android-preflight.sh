@@ -75,7 +75,7 @@ fi
 
 hdr "4) ملفات المشروع"
 [ -d "android" ] && ok "مجلد android موجود" || { warn "مجلد android غير موجود"; fix "شغّل: npx cap add android"; }
-[ -f "dist-capacitor/index.html" ] && ok "dist-capacitor/index.html موجود" || { warn "مخرج Android الثابت غير جاهز"; fix "شغّل: npm run build:android"; }
+[ -f "dist/index.html" ] && ok "dist/index.html موجود" || { warn "مخرج Android الثابت غير جاهز"; fix "شغّل: npm run build:android"; }
 [ -f "capacitor.config.ts" ] && ok "capacitor.config.ts موجود" || err "capacitor.config.ts مفقود"
 
 hdr "5) توافق إصدارات Gradle/AGP/SDK"
@@ -137,18 +137,18 @@ if [ -f "capacitor.config.ts" ]; then
     fix "احذف server.url من capacitor.config.ts أو اجعله فقط في التطوير"
   else ok "server.url غير مضبوط (جيد للإنتاج)"; fi
   grep -q 'androidScheme.*https' capacitor.config.ts && ok "androidScheme=https" || warn "androidScheme غير https — قد يمنع بعض APIs offline"
-  grep -q 'webDir: "dist-capacitor"' capacitor.config.ts && ok "webDir=dist-capacitor" || { err "webDir لا يشير إلى dist-capacitor"; fix "اضبط capacitor.config.ts على webDir: \"dist-capacitor\""; }
+  grep -q 'webDir: "dist"' capacitor.config.ts && ok "webDir=dist" || { err "webDir لا يشير إلى dist"; fix "اضبط capacitor.config.ts على webDir: \"dist\""; }
 fi
 
 hdr "8) فحص index.html ومسارات Android WebView"
-if [ -f "dist-capacitor/index.html" ]; then
-  if grep -qE ' (src|href)="/assets/' dist-capacitor/index.html; then
+if [ -f "dist/index.html" ]; then
+  if grep -qE ' (src|href)="/assets/' dist/index.html; then
     err "index.html يستخدم /assets مساراً مطلقاً — سبب مباشر للشاشة البيضاء"
     fix "شغّل: npm run build:android وتأكد من vite.base='./'"
-  else ok "مسارات assets نسبية داخل dist-capacitor/index.html"; fi
-  grep -qE 'src="\./assets/index-.*\.js"' dist-capacitor/index.html && ok "ملف تشغيل JavaScript موجود بمسار نسبي" || warn "لم يتم العثور على script ./assets/index-*.js"
+  else ok "مسارات assets نسبية داخل dist/index.html"; fi
+  grep -qE 'src="\./assets/index-.*\.js"' dist/index.html && ok "ملف تشغيل JavaScript موجود بمسار نسبي" || warn "لم يتم العثور على script ./assets/index-*.js"
 else
-  err "dist-capacitor/index.html غير موجود"
+  err "dist/index.html غير موجود"
   fix "شغّل: npm run build:android"
 fi
 

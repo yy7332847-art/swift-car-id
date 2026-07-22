@@ -1,6 +1,6 @@
 # دليل بناء تطبيق PlateCheck على Android بدون شاشة بيضاء
 
-هذا الدليل يستخدم **npm / npx فقط**. سبب الشاشة البيضاء الأساسي كان أن بناء الويب العادي لا يخرج `index.html` ثابتًا يصلح لـ Capacitor؛ لذلك نستخدم `dist-capacitor/` المخصص لتطبيق Android.
+هذا الدليل يستخدم **npm / npx فقط**. سبب الشاشة البيضاء الأساسي كان أن بناء الويب العادي لا يخرج `index.html` ثابتًا يصلح لـ Capacitor؛ لذلك نستخدم `dist/` المخصص لتطبيق Android.
 
 ## المتطلبات
 
@@ -33,7 +33,7 @@ npx cap open android
 تأكد أن مخرج Android موجود:
 
 ```bash
-test -f dist-capacitor/index.html && echo "OK: Android web build جاهز"
+test -f dist/index.html && echo "OK: Android web build جاهز"
 ```
 
 إذا لم يظهر `OK` لا تفتح Android Studio قبل إصلاح البناء.
@@ -47,7 +47,7 @@ npm run android:fix
 npm run android:doctor
 ```
 
-هذا يفحص JDK/SDK/Gradle، توافق حزم Capacitor Native Bridge، إعدادات Kotlin/R8، ويتأكد أن `capacitor.config.ts` يستخدم `webDir: "dist-capacitor"` ولا يحتوي على `server.url`، ويتأكد أن `index.html` يستخدم مسارات نسبية `./assets/...` وليس `/assets/...` حتى لا تظهر الشاشة البيضاء داخل Android WebView.
+هذا يفحص JDK/SDK/Gradle، توافق حزم Capacitor Native Bridge، إعدادات Kotlin/R8، ويتأكد أن `capacitor.config.ts` يستخدم `webDir: "dist"` ولا يحتوي على `server.url`، ويتأكد أن `index.html` يستخدم مسارات نسبية `./assets/...` وليس `/assets/...` حتى لا تظهر الشاشة البيضاء داخل Android WebView.
 
 ## بعد أي تعديل
 
@@ -187,7 +187,7 @@ npm run offline:audit
 
 ```bash
 npm run build:android
-test -f dist-capacitor/index.html || echo "ERROR: missing Android index.html"
+test -f dist/index.html || echo "ERROR: missing Android index.html"
 npm run offline:audit
 npm run android:preflight
 npm run android:fix
@@ -202,7 +202,7 @@ adb logcat | grep -iE "capacitor|platecheck|chromium|crash|error"
 ```
 
 ما تم منعه جذريًا:
-- لا نستخدم `dist/` مباشرة؛ Android يستخدم `dist-capacitor/` وفيه `index.html`.
+- لا نستخدم `dist/` مباشرة؛ Android يستخدم `dist/` وفيه `index.html`.
 - لا نستخدم مسارات `/assets/...` المطلقة؛ Android يستخدم `./assets/...` النسبية.
 - لا يوجد `server.url` في الإنتاج.
 - Leaflet CSS محلي وليس CDN.
