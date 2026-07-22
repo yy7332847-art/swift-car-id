@@ -17,9 +17,10 @@ export default defineConfig({
     base: "./",
     plugins: [
       VitePWA({
+        outDir: "dist/client",
         strategies: "generateSW",
         filename: "sw.js",
-        injectRegister: null,
+        injectRegister: false,
         registerType: "autoUpdate",
         devOptions: { enabled: false },
         manifest: false,
@@ -56,7 +57,7 @@ export default defineConfig({
             },
             {
               urlPattern: ({ url }: { url: URL }) =>
-                url.origin === self.location.origin && /^\/assets\/.*\.[a-z0-9-]+\./i.test(url.pathname),
+                url.origin === self.location.origin && /\/assets\/.*\.[a-z0-9-]+\./i.test(url.pathname),
               handler: "CacheFirst",
               options: {
                 cacheName: "platecheck-assets",
