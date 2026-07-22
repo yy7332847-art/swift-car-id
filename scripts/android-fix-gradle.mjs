@@ -59,6 +59,10 @@ function replaceOrAppend(content, regexp, replacement, appendLine) {
 function patchBuildGradle(path) {
   let content = read(path);
   if (!content) return false;
+  content = content.replace(
+    /(buildscript\s*\{\s*)/,
+    `$1\n    ext.kotlin_version = '${TARGETS.kotlin}'\n`,
+  );
   content = replaceOrAppend(
     content,
     /classpath ['"]com\.android\.tools\.build:gradle:[^'"]+['"]/,
@@ -66,8 +70,8 @@ function patchBuildGradle(path) {
   );
   if (!/org\.jetbrains\.kotlin:kotlin-gradle-plugin/.test(content)) {
     content = content.replace(
-      /(classpath ['"]com\.google\.gms:google-services:[^'"]+['"])/,
-      `$1\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"`,
+      /(classpath ['"]com\.android\.tools\.build:gradle:[^'"]+['"])/,
+      `$1\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${TARGETS.kotlin}"`,
     );
   }
   write(path, content);
