@@ -98,9 +98,9 @@ export function InstallPWAButton({ className = "" }: { className?: string }) {
     };
   }, []);
 
-  if (env.native || installed) return null;
+  if (env.native || env.standalone || installed) return null;
 
-  const supportsPrompt = !!deferred || !!window.__plateInstallPrompt;
+  const supportsPrompt = !!deferred || env.promptReady;
   const iosFallback = env.ios && !supportsPrompt;
 
   async function handleInstall() {

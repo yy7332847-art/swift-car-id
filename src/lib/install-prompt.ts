@@ -5,6 +5,7 @@ export type BeforeInstallPromptEvent = Event & {
 
 declare global {
   interface Window {
+    __plateInstallPromptCaptureReady?: boolean;
     __plateInstallPrompt?: BeforeInstallPromptEvent | null;
     __platePwaInstalled?: boolean;
   }
