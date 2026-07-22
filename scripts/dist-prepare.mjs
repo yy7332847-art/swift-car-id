@@ -56,6 +56,13 @@ const html = `<!doctype html>
     <title>تشييك اللوحات — نظام تعرّف صوتي على لوحات السيارات</title>
     <meta name="description" content="نظام موبايل احترافي لمحصّلي البنوك: رفع ملفات لوحات ثم مطابقة صوتية فورية بالعربية." />
     <link rel="icon" href="./favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="تشييك" />
+    <meta name="mobile-web-app-capable" content="yes" />
 ${cssLinks}
   </head>
   <body>
