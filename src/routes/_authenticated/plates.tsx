@@ -10,10 +10,11 @@ import { motion } from "motion/react";
 import { Search, MapPin, Clock, CheckCircle2, AlertTriangle, Circle, Download, Loader2, ExternalLink } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/plates")({
-  component: () => (<MobileShell><PlatesPage /></MobileShell>),
-  errorComponent: ({ error }) => <MobileShell><div className="p-6 text-sm text-destructive">{error.message}</div></MobileShell>,
-  notFoundComponent: () => <MobileShell><div className="p-6 text-sm">غير موجود</div></MobileShell>,
+  component: PlatesPage,
+  errorComponent: ({ error }) => <div className="p-6 text-sm text-destructive">{error.message}</div>,
+  notFoundComponent: () => <div className="p-6 text-sm">غير موجود</div>,
 });
+
 
 const sel = (s: string): string => s;
 const PAGE = 60;
