@@ -53,7 +53,7 @@ const html = `<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0f172a" />
-    <title>تشييك اللوحات — نظام تعرّف صوتي على لوحات السيارات</title>
+    <title>مجدي للتشييك — نظام تعرّف صوتي على لوحات السيارات</title>
     <meta name="description" content="نظام موبايل احترافي لمحصّلي البنوك: رفع ملفات لوحات ثم مطابقة صوتية فورية بالعربية." />
     <link rel="icon" href="./favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />
@@ -61,7 +61,7 @@ const html = `<!doctype html>
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="تشييك" />
+    <meta name="apple-mobile-web-app-title" content="مجدي" />
     <meta name="mobile-web-app-capable" content="yes" />
 ${cssLinks}
   </head>
