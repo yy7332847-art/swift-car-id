@@ -15,6 +15,7 @@ import { THEME_INIT_SCRIPT } from "../lib/theme";
 import { Toaster } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { NativeSafeErrorBoundary } from "@/components/NativeSafeErrorBoundary";
+import { registerPWA } from "@/lib/pwa";
 
 
 function NotFoundComponent() {
@@ -104,6 +105,7 @@ function RootComponent() {
     });
     return () => sub.subscription.unsubscribe();
   }, [router, queryClient]);
+  useEffect(() => { void registerPWA(); }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <NativeSafeErrorBoundary>
