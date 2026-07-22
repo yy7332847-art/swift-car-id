@@ -6,9 +6,9 @@
 
 - Node.js 20 أو أعلى
 - npm
-- Java JDK 17
+- Java JDK 21
 - Android Studio حديث
-- Android SDK API 34 أو 35
+- Android SDK API 36
 
 تحقق:
 
@@ -25,7 +25,7 @@ echo $ANDROID_HOME
 npm install
 npm run build:android
 npx cap add android
-npx cap sync android
+npm run android:sync
 npx cap open android
 ```
 
@@ -42,15 +42,33 @@ test -f dist-capacitor/index.html && echo "OK: Android web build جاهز"
 ```bash
 npm run android:preflight
 npm run offline:audit
+npm run android:fix
 ```
 
-هذا يفحص JDK/SDK/Gradle، ويتأكد أن `capacitor.config.ts` يستخدم `webDir: "dist-capacitor"` ولا يحتوي على `server.url` الذي يسبب شاشة بيضاء.
+هذا يفحص JDK/SDK/Gradle، ويتأكد أن `capacitor.config.ts` يستخدم `webDir: "dist-capacitor"` ولا يحتوي على `server.url`، ويتأكد أن `index.html` يستخدم مسارات نسبية `./assets/...` وليس `/assets/...` حتى لا تظهر الشاشة البيضاء داخل Android WebView.
 
 ## بعد أي تعديل
 
 ```bash
 npm run android:sync
 ```
+
+لو Android Studio أظهر أخطاء Kotlin Metadata / D8 / R8 مثل:
+
+```text
+Unexpected error during rewriting of Kotlin metadata
+Should never be called
+GeolocationPlugin
+```
+
+شغّل:
+
+```bash
+npm run android:fix
+npx cap sync android
+```
+
+الأمر يثبت إعدادات Android المتوافقة: Gradle 8.14.3، AGP 8.13.0، Kotlin 2.2.20، SDK 36، ويعطّل R8 full mode لتجنب انهيار D8 مع Metadata الخاصة بإضافات الموقع.
 
 أو للبناء والمزامنة وفتح Android Studio مباشرة:
 
@@ -66,26 +84,38 @@ npm run android:open
 
 ```gradle
 ext {
-    minSdkVersion = 23
-    compileSdkVersion = 35
-    targetSdkVersion = 35
-    androidxActivityVersion = '1.9.2'
-    androidxAppCompatVersion = '1.7.0'
-    androidxCoreVersion = '1.13.1'
-    androidxWebkitVersion = '1.12.1'
+    minSdkVersion = 24
+    compileSdkVersion = 36
+    targetSdkVersion = 36
+    androidxActivityVersion = '1.11.0'
+    androidxAppCompatVersion = '1.7.1'
+    androidxCoreVersion = '1.17.0'
+    androidxWebkitVersion = '1.14.0'
+    kotlin_version = '2.2.20'
+    kotlinxCoroutinesVersion = '1.10.2'
+    playServicesLocationVersion = '21.3.0'
 }
 ```
 
 `android/build.gradle`:
 
 ```gradle
-classpath 'com.android.tools.build:gradle:8.7.2'
+classpath 'com.android.tools.build:gradle:8.13.0'
 ```
 
 `android/gradle/wrapper/gradle-wrapper.properties`:
 
 ```properties
-distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-all.zip
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.14.3-all.zip
+```
+
+`android/gradle.properties` يجب أن يحتوي:
+
+```properties
+android.useAndroidX=true
+android.enableJetifier=true
+android.enableR8.fullMode=false
+org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
 ```
 
 بعد أي تعديل:
@@ -154,7 +184,9 @@ npm run offline:audit
 ```bash
 npm run build:android
 test -f dist-capacitor/index.html || echo "ERROR: missing Android index.html"
+npm run offline:audit
 npm run android:preflight
+npm run android:fix
 npx cap sync android
 npx cap open android
 ```
@@ -167,6 +199,8 @@ adb logcat | grep -iE "capacitor|platecheck|chromium|crash|error"
 
 ما تم منعه جذريًا:
 - لا نستخدم `dist/` مباشرة؛ Android يستخدم `dist-capacitor/` وفيه `index.html`.
+- لا نستخدم مسارات `/assets/...` المطلقة؛ Android يستخدم `./assets/...` النسبية.
 - لا يوجد `server.url` في الإنتاج.
 - Leaflet CSS محلي وليس CDN.
 - كل الأوامر `npm` و `npx`.
+- أخطاء Kotlin Metadata / D8 الخاصة بإضافات الموقع تعالج عبر `npm run android:fix`.

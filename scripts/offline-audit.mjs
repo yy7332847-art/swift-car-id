@@ -33,7 +33,12 @@ const ASSET_PATTERNS = [
   { re: /https?:\/\/[a-z0-9.-]+\.tile\.openstreetmap\.org[^\s"')]*/g, kind: "map-tiles", fix: "مقبول للخريطة أونلاين فقط — أخفِ الخريطة تلقائياً في الوضع offline" },
 ];
 
+const EMBEDDED_DOC_URLS = [
+  /cdnjs\.cloudflare\.com\/ajax\/libs\/pdfobject/i,
+];
+
 const results = { ok: [], warn: [], fail: [] };
+const sourceResults = { fail: [] };
 const seen = new Set();
 
 function walk(dir) {
@@ -45,8 +50,8 @@ function walk(dir) {
   }
 }
 
-function scanFile(path) {
-  const rel = relative(HERE, path);
+function scanFile(path, base = HERE, target = results) {
+  const rel = relative(base, path);
   const content = readFileSync(path, "utf8");
   // Extract all URLs
   const urls = content.match(/https?:\/\/[^\s"'`)<>]+/g) ?? [];
@@ -55,17 +60,18 @@ function scanFile(path) {
     if (seen.has(key)) continue;
     seen.add(key);
     const clean = url.replace(/[.,;:!?)]+$/, "");
+    if (EMBEDDED_DOC_URLS.some((r) => r.test(clean))) continue;
     const asset = ASSET_PATTERNS.find((a) => a.re.test(clean));
     a: {
       if (asset) {
-        results.fail.push({ file: rel, url: clean, kind: asset.kind, fix: asset.fix });
+        target.fail.push({ file: rel, url: clean, kind: asset.kind, fix: asset.fix });
         break a;
       }
       if (ONLINE_OK.some((r) => r.test(clean))) {
-        results.ok.push({ file: rel, url: clean });
+        target.ok?.push({ file: rel, url: clean });
         break a;
       }
-      results.warn.push({ file: rel, url: clean });
+      target.warn?.push({ file: rel, url: clean });
     }
     // reset regex state
     for (const a of ASSET_PATTERNS) a.re.lastIndex = 0;
@@ -74,9 +80,24 @@ function scanFile(path) {
 
 walk(HERE);
 
+function walkSource(dir) {
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    const s = statSync(p);
+    if (s.isDirectory()) walkSource(p);
+    else if (/\.(ts|tsx|js|jsx|css|html|mjs)$/i.test(name)) scanFile(p, ROOT, sourceResults);
+  }
+}
+
+walkSource(join(ROOT, "src"));
+
 // Manifest check
 const manifest = ["manifest.webmanifest", "manifest.json"].map((f) => join(HERE, f)).find(existsSync);
 const swPath = join(HERE, "sw.js");
+const indexPath = join(HERE, "index.html");
+const indexHtml = existsSync(indexPath) ? readFileSync(indexPath, "utf8") : "";
+const hasAbsoluteBundledAssets = /\s(?:src|href)="\/assets\//.test(indexHtml);
 
 console.log(`\n${BOLD}${BLU}تقرير الجاهزية للعمل بدون إنترنت${NC}\n`);
 
@@ -102,6 +123,7 @@ if (results.warn.length) {
 
 console.log(`\n${BOLD}Manifest:${NC}  ${manifest ? GRN + "✓ " + relative(HERE, manifest) : YEL + "⚠ غير موجود"}${NC}`);
 console.log(`${BOLD}Service Worker:${NC}  ${existsSync(swPath) ? GRN + "✓ sw.js" : YEL + "⚠ لا يوجد SW (المزامنة أثناء فتح التطبيق فقط)"}${NC}`);
+console.log(`${BOLD}Android asset paths:${NC} ${hasAbsoluteBundledAssets ? RED + "✗ /assets مطلقة — ستسبب شاشة بيضاء" : GRN + "✓ نسبية وصالحة لـ WebView"}${NC}`);
 
 // IndexedDB usage check (source-level, from src/)
 const srcHasOfflineStore = existsSync(join(ROOT, "src/lib/offline-store.ts"));
@@ -110,7 +132,12 @@ console.log(`${BOLD}IndexedDB store:${NC}  ${srcHasOfflineStore ? GRN + "✓ off
 console.log(`${BOLD}Sync queue:${NC}     ${srcHasSyncQueue ? GRN + "✓ sync-queue.ts" : RED + "✗ مفقود"}${NC}`);
 
 console.log();
-if (results.fail.length > 0) {
+if (hasAbsoluteBundledAssets) {
+  console.log(`${RED}${BOLD}الفحص فشل — شغّل npm run build:android بعد ضبط base: \"./\".${NC}`);
+  process.exit(1);
+} else if (sourceResults.fail.length === 0 && results.fail.length > 0) {
+  console.log(`${YEL}${BOLD}تنبيه: الموارد الخارجية موجودة في مخرجات قديمة فقط. شغّل npm run build:android لإعادة توليد dist-capacitor.${NC}`);
+} else if (results.fail.length > 0) {
   console.log(`${RED}${BOLD}الفحص فشل — أصلح الموارد الخارجية أعلاه.${NC}`);
   process.exit(1);
 } else {
