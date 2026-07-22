@@ -2,7 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { createHashHistory, createRouter, Link } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 
-function useNativeHashHistory() {
+function shouldUseNativeHashHistory() {
   if (typeof window === "undefined") return false;
   const w = window as typeof window & { Capacitor?: { isNativePlatform?: () => boolean } };
   return !!w.Capacitor?.isNativePlatform?.() || window.location.protocol === "file:" || window.location.protocol === "capacitor:";
@@ -25,7 +25,7 @@ function DefaultErrorComponent({ error }: { error: Error }) {
 
 export const getRouter = () => {
   const queryClient = new QueryClient();
-  const history = useNativeHashHistory() ? createHashHistory() : undefined;
+  const history = shouldUseNativeHashHistory() ? createHashHistory() : undefined;
 
   const router = createRouter({
     routeTree,
