@@ -77,6 +77,9 @@ walk(HERE);
 // Manifest check
 const manifest = ["manifest.webmanifest", "manifest.json"].map((f) => join(HERE, f)).find(existsSync);
 const swPath = join(HERE, "sw.js");
+const indexPath = join(HERE, "index.html");
+const indexHtml = existsSync(indexPath) ? readFileSync(indexPath, "utf8") : "";
+const hasAbsoluteBundledAssets = /\s(?:src|href)="\/assets\//.test(indexHtml);
 
 console.log(`\n${BOLD}${BLU}تقرير الجاهزية للعمل بدون إنترنت${NC}\n`);
 
@@ -102,6 +105,7 @@ if (results.warn.length) {
 
 console.log(`\n${BOLD}Manifest:${NC}  ${manifest ? GRN + "✓ " + relative(HERE, manifest) : YEL + "⚠ غير موجود"}${NC}`);
 console.log(`${BOLD}Service Worker:${NC}  ${existsSync(swPath) ? GRN + "✓ sw.js" : YEL + "⚠ لا يوجد SW (المزامنة أثناء فتح التطبيق فقط)"}${NC}`);
+console.log(`${BOLD}Android asset paths:${NC} ${hasAbsoluteBundledAssets ? RED + "✗ /assets مطلقة — ستسبب شاشة بيضاء" : GRN + "✓ نسبية وصالحة لـ WebView"}${NC}`);
 
 // IndexedDB usage check (source-level, from src/)
 const srcHasOfflineStore = existsSync(join(ROOT, "src/lib/offline-store.ts"));
@@ -110,7 +114,10 @@ console.log(`${BOLD}IndexedDB store:${NC}  ${srcHasOfflineStore ? GRN + "✓ off
 console.log(`${BOLD}Sync queue:${NC}     ${srcHasSyncQueue ? GRN + "✓ sync-queue.ts" : RED + "✗ مفقود"}${NC}`);
 
 console.log();
-if (results.fail.length > 0) {
+if (hasAbsoluteBundledAssets) {
+  console.log(`${RED}${BOLD}الفحص فشل — شغّل npm run build:android بعد ضبط base: \"./\".${NC}`);
+  process.exit(1);
+} else if (results.fail.length > 0) {
   console.log(`${RED}${BOLD}الفحص فشل — أصلح الموارد الخارجية أعلاه.${NC}`);
   process.exit(1);
 } else {

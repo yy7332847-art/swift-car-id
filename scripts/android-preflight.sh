@@ -13,23 +13,23 @@ warn(){ echo -e "  ${YELLOW}⚠${NC} $1"; WARN=$((WARN+1)); }
 err() { echo -e "  ${RED}✗${NC} $1"; FAIL=$((FAIL+1)); }
 fix() { echo -e "    ${BOLD}الحل:${NC} $1"; }
 
-hdr "1) JDK Version (يجب أن يكون 17)"
+hdr "1) JDK Version (يجب أن يكون 21 مع Capacitor 8)"
 if command -v java >/dev/null 2>&1; then
   JV=$(java -version 2>&1 | head -1 | grep -oE '"[0-9]+' | tr -d '"' | head -1)
-  if [ "$JV" = "17" ]; then ok "JDK $JV مثبت"
+  if [ "$JV" = "21" ]; then ok "JDK $JV مثبت"
   else
-    err "JDK $JV مثبت — Capacitor 8 يحتاج JDK 17 بالضبط"
-    fix "ثبّت JDK 17 من https://adoptium.net ثم export JAVA_HOME=\$(/usr/libexec/java_home -v 17)"
+    err "JDK $JV مثبت — Capacitor 8 وقوالب Android الحديثة تحتاج JDK 21"
+    fix "ثبّت JDK 21 من Android Studio أو Temurin ثم اضبط Gradle JDK على 21"
   fi
-else err "java غير موجود"; fix "ثبّت Temurin JDK 17"; fi
+else err "java غير موجود"; fix "ثبّت Temurin JDK 21"; fi
 
 hdr "2) Android SDK"
 if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME" ]; then
   ok "ANDROID_HOME=$ANDROID_HOME"
-  [ -d "$ANDROID_HOME/platforms/android-35" ] && ok "SDK Platform 35 موجود" || warn "SDK Platform 35 مفقود — افتح SDK Manager وثبّته"
-  [ -d "$ANDROID_HOME/build-tools" ] && ok "Build-Tools موجودة" || warn "Build-Tools مفقودة — ثبّت 34.0.0 من SDK Manager"
+  [ -d "$ANDROID_HOME/platforms/android-36" ] && ok "SDK Platform 36 موجود" || warn "SDK Platform 36 مفقود — افتح SDK Manager وثبّته"
+  [ -d "$ANDROID_HOME/build-tools" ] && ok "Build-Tools موجودة" || warn "Build-Tools مفقودة — ثبّت أحدث Build Tools من SDK Manager"
 else
-  err "ANDROID_HOME غير معرّف"
+    err "ANDROID_HOME غير معرّف"
   fix "ثبّت Android Studio ثم export ANDROID_HOME=\$HOME/Library/Android/sdk (macOS) أو \$HOME/Android/Sdk (Linux)"
 fi
 
@@ -53,15 +53,16 @@ WRAP="android/gradle/wrapper/gradle-wrapper.properties"
 if [ -f "$VARS" ]; then
   CSDK=$(grep -oE 'compileSdkVersion\s*=\s*[0-9]+' "$VARS" | grep -oE '[0-9]+' | head -1)
   TSDK=$(grep -oE 'targetSdkVersion\s*=\s*[0-9]+' "$VARS" | grep -oE '[0-9]+' | head -1)
-  [ "${CSDK:-0}" -ge 34 ] && ok "compileSdk=$CSDK" || { err "compileSdk=$CSDK منخفض"; fix "عدّل $VARS: compileSdkVersion = 35"; }
-  [ "${TSDK:-0}" -ge 34 ] && ok "targetSdk=$TSDK" || { err "targetSdk=$TSDK منخفض"; fix "عدّل $VARS: targetSdkVersion = 35"; }
+  [ "${CSDK:-0}" -ge 36 ] && ok "compileSdk=$CSDK" || { err "compileSdk=$CSDK منخفض"; fix "شغّل: npm run android:fix أو عدّل $VARS: compileSdkVersion = 36"; }
+  [ "${TSDK:-0}" -ge 36 ] && ok "targetSdk=$TSDK" || { err "targetSdk=$TSDK منخفض"; fix "شغّل: npm run android:fix أو عدّل $VARS: targetSdkVersion = 36"; }
 else warn "$VARS مفقود"; fi
 
 if [ -f "$BUILD" ]; then
   AGP=$(grep -oE "com.android.tools.build:gradle:[0-9.]+" "$BUILD" | head -1 | cut -d: -f3)
   if [ -n "$AGP" ]; then
     AGP_MAJ=$(echo "$AGP" | cut -d. -f1)
-    [ "$AGP_MAJ" -ge 8 ] && ok "AGP $AGP" || { err "AGP $AGP قديم"; fix "عدّل $BUILD: classpath 'com.android.tools.build:gradle:8.7.2'"; }
+    AGP_MIN=$(echo "$AGP" | cut -d. -f2)
+    if [ "$AGP_MAJ" -gt 8 ] || { [ "$AGP_MAJ" -eq 8 ] && [ "${AGP_MIN:-0}" -ge 13 ]; }; then ok "AGP $AGP"; else err "AGP $AGP قديم وقد يسبب Kotlin Metadata / D8"; fix "شغّل: npm run android:fix أو عدّل $BUILD: classpath 'com.android.tools.build:gradle:8.13.0'"; fi
   fi
 fi
 
@@ -69,7 +70,8 @@ if [ -f "$WRAP" ]; then
   GRADLE=$(grep -oE "gradle-[0-9.]+-" "$WRAP" | head -1 | grep -oE "[0-9.]+" | head -1)
   if [ -n "$GRADLE" ]; then
     GMAJ=$(echo "$GRADLE" | cut -d. -f1)
-    [ "$GMAJ" -ge 8 ] && ok "Gradle $GRADLE" || { err "Gradle $GRADLE قديم"; fix "عدّل $WRAP: gradle-8.11.1-all.zip"; }
+    GMIN=$(echo "$GRADLE" | cut -d. -f2)
+    if [ "$GMAJ" -gt 8 ] || { [ "$GMAJ" -eq 8 ] && [ "${GMIN:-0}" -ge 14 ]; }; then ok "Gradle $GRADLE"; else err "Gradle $GRADLE قديم"; fix "شغّل: npm run android:fix أو عدّل $WRAP: gradle-8.14.3-all.zip"; fi
   fi
 fi
 
@@ -91,7 +93,19 @@ if [ -f "capacitor.config.ts" ]; then
   grep -q 'webDir: "dist-capacitor"' capacitor.config.ts && ok "webDir=dist-capacitor" || { err "webDir لا يشير إلى dist-capacitor"; fix "اضبط capacitor.config.ts على webDir: \"dist-capacitor\""; }
 fi
 
-hdr "8) مساحة القرص و Gradle cache"
+hdr "8) فحص index.html ومسارات Android WebView"
+if [ -f "dist-capacitor/index.html" ]; then
+  if grep -qE ' (src|href)="/assets/' dist-capacitor/index.html; then
+    err "index.html يستخدم /assets مساراً مطلقاً — سبب مباشر للشاشة البيضاء"
+    fix "شغّل: npm run build:android وتأكد من vite.base='./'"
+  else ok "مسارات assets نسبية داخل dist-capacitor/index.html"; fi
+  grep -qE 'src="\./assets/index-.*\.js"' dist-capacitor/index.html && ok "ملف تشغيل JavaScript موجود بمسار نسبي" || warn "لم يتم العثور على script ./assets/index-*.js"
+else
+  err "dist-capacitor/index.html غير موجود"
+  fix "شغّل: npm run build:android"
+fi
+
+hdr "9) مساحة القرص و Gradle cache"
 if [ -d "$HOME/.gradle/caches" ]; then
   SZ=$(du -sh "$HOME/.gradle/caches" 2>/dev/null | cut -f1)
   ok "Gradle cache: $SZ"

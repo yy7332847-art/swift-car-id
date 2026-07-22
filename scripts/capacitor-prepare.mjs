@@ -29,7 +29,7 @@ if (!entry) fail("تعذر تحديد ملف تشغيل الواجهة داخل 
 
 const cssLinks = files
   .filter((name) => name.endsWith(".css"))
-  .map((name) => `    <link rel="stylesheet" href="/assets/${name}" />`)
+  .map((name) => `    <link rel="stylesheet" href="./assets/${name}" />`)
   .join("\n");
 
 const html = `<!doctype html>
@@ -39,12 +39,12 @@ const html = `<!doctype html>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0f172a" />
     <title>تشييك اللوحات</title>
-    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" href="./favicon.ico" />
 ${cssLinks}
   </head>
   <body>
     <noscript>يجب تفعيل JavaScript لتشغيل التطبيق.</noscript>
-    <script type="module" src="/assets/${entry}"></script>
+    <script type="module" src="./assets/${entry}"></script>
   </body>
 </html>
 `;
@@ -52,6 +52,9 @@ ${cssLinks}
 writeFileSync(join(OUT_DIR, "index.html"), html, "utf8");
 
 const output = readFileSync(join(OUT_DIR, "index.html"), "utf8");
-if (!output.includes(`/assets/${entry}`)) fail("فشل إنشاء index.html صالح للتطبيق.");
+if (!output.includes(`./assets/${entry}`)) fail("فشل إنشاء index.html صالح للتطبيق.");
+if (/\s(?:src|href)="\/assets\//.test(output)) {
+  fail("index.html يحتوي على مسارات /assets مطلقة تسبب شاشة بيضاء داخل Android WebView.");
+}
 
 console.log(`✓ تم تجهيز ${OUT_DIR}/index.html لتطبيق Android`);
