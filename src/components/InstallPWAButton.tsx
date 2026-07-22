@@ -14,6 +14,15 @@ type InstallEnv = {
   blocked: boolean;
 };
 
+const DEFAULT_INSTALL_ENV: InstallEnv = {
+  ready: false,
+  standalone: false,
+  ios: false,
+  native: false,
+  promptReady: false,
+  blocked: false,
+};
+
 function isStandalone() {
   if (typeof window === "undefined") return false;
   return (
@@ -36,7 +45,7 @@ function isCapacitorNative() {
 
 function readInstallEnv(): InstallEnv {
   if (typeof window === "undefined") {
-    return { ready: false, standalone: false, ios: false, native: false, promptReady: false, blocked: false };
+    return DEFAULT_INSTALL_ENV;
   }
   return {
     ready: true,
@@ -56,7 +65,7 @@ function readInstallEnv(): InstallEnv {
  */
 export function InstallPWAButton({ className = "" }: { className?: string }) {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
-  const [env, setEnv] = useState<InstallEnv>(() => readInstallEnv());
+  const [env, setEnv] = useState<InstallEnv>(DEFAULT_INSTALL_ENV);
   const [installed, setInstalled] = useState(false);
   const [showIOSHelp, setShowIOSHelp] = useState(false);
   const [busy, setBusy] = useState(false);
