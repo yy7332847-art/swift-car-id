@@ -5,7 +5,10 @@
 //     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
-import { VitePWA } from "vite-plugin-pwa";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { VitePWA } = require("vite-plugin-pwa");
 
 export default defineConfig({
   vite: {
@@ -40,7 +43,7 @@ export default defineConfig({
           globPatterns: ["**/*.{js,css,html,png,ico,webmanifest,woff,woff2,svg}"],
           runtimeCaching: [
             {
-              urlPattern: ({ request, url }) =>
+              urlPattern: ({ request, url }: { request: Request; url: URL }) =>
                 request.mode === "navigate" &&
                 url.origin === self.location.origin &&
                 !url.pathname.startsWith("/~oauth"),
@@ -52,7 +55,7 @@ export default defineConfig({
               },
             },
             {
-              urlPattern: ({ url }) =>
+              urlPattern: ({ url }: { url: URL }) =>
                 url.origin === self.location.origin && /^\/assets\/.*\.[a-z0-9-]+\./i.test(url.pathname),
               handler: "CacheFirst",
               options: {
@@ -62,7 +65,7 @@ export default defineConfig({
               },
             },
             {
-              urlPattern: ({ url }) =>
+              urlPattern: ({ url }: { url: URL }) =>
                 url.origin === self.location.origin &&
                 /(manifest\.webmanifest|favicon|icon-|apple-touch)/.test(url.pathname),
               handler: "StaleWhileRevalidate",
