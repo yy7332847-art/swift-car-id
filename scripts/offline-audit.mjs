@@ -33,6 +33,10 @@ const ASSET_PATTERNS = [
   { re: /https?:\/\/[a-z0-9.-]+\.tile\.openstreetmap\.org[^\s"')]*/g, kind: "map-tiles", fix: "مقبول للخريطة أونلاين فقط — أخفِ الخريطة تلقائياً في الوضع offline" },
 ];
 
+const EMBEDDED_DOC_URLS = [
+  /cdnjs\.cloudflare\.com\/ajax\/libs\/pdfobject/i,
+];
+
 const results = { ok: [], warn: [], fail: [] };
 const seen = new Set();
 
@@ -55,6 +59,7 @@ function scanFile(path) {
     if (seen.has(key)) continue;
     seen.add(key);
     const clean = url.replace(/[.,;:!?)]+$/, "");
+    if (EMBEDDED_DOC_URLS.some((r) => r.test(clean))) continue;
     const asset = ASSET_PATTERNS.find((a) => a.re.test(clean));
     a: {
       if (asset) {

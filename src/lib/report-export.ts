@@ -85,9 +85,8 @@ function buildReportHTML(session: SessionRow, rows: DetectedRow[]): string {
     </tr>`;
   }).join("");
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet"/>
     <style>
-      *{box-sizing:border-box;font-family:'Cairo',system-ui,sans-serif}
+      *{box-sizing:border-box;font-family:system-ui,-apple-system,'Segoe UI',Tahoma,Arial,sans-serif}
       body{margin:0;padding:24px;background:#fff;color:#111;width:794px}
       .brand{display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;border-bottom:3px solid #1e64b4}
       .brand h1{margin:0;font-size:20px;color:#1e64b4;font-weight:900}
@@ -99,7 +98,7 @@ function buildReportHTML(session: SessionRow, rows: DetectedRow[]): string {
       table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
       th,td{border:1px solid #ddd;padding:6px 8px;text-align:right}
       th{background:#f5f8ff;color:#1e64b4;font-weight:900}
-      td.plate{font-family:'Cairo',monospace;font-weight:900;letter-spacing:2px}
+      td.plate{font-family:Tahoma,Arial,monospace;font-weight:900;letter-spacing:2px}
       .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:900}
       .pill.ok{background:#d9f5e2;color:#0a7d33}
       .pill.warn{background:#fff2cc;color:#8a6100}
