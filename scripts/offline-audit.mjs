@@ -38,6 +38,7 @@ const EMBEDDED_DOC_URLS = [
 ];
 
 const results = { ok: [], warn: [], fail: [] };
+const sourceResults = { fail: [] };
 const seen = new Set();
 
 function walk(dir) {
@@ -49,8 +50,8 @@ function walk(dir) {
   }
 }
 
-function scanFile(path) {
-  const rel = relative(HERE, path);
+function scanFile(path, base = HERE, target = results) {
+  const rel = relative(base, path);
   const content = readFileSync(path, "utf8");
   // Extract all URLs
   const urls = content.match(/https?:\/\/[^\s"'`)<>]+/g) ?? [];
@@ -63,14 +64,14 @@ function scanFile(path) {
     const asset = ASSET_PATTERNS.find((a) => a.re.test(clean));
     a: {
       if (asset) {
-        results.fail.push({ file: rel, url: clean, kind: asset.kind, fix: asset.fix });
+        target.fail.push({ file: rel, url: clean, kind: asset.kind, fix: asset.fix });
         break a;
       }
       if (ONLINE_OK.some((r) => r.test(clean))) {
-        results.ok.push({ file: rel, url: clean });
+        target.ok?.push({ file: rel, url: clean });
         break a;
       }
-      results.warn.push({ file: rel, url: clean });
+      target.warn?.push({ file: rel, url: clean });
     }
     // reset regex state
     for (const a of ASSET_PATTERNS) a.re.lastIndex = 0;
@@ -78,6 +79,18 @@ function scanFile(path) {
 }
 
 walk(HERE);
+
+function walkSource(dir) {
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    const s = statSync(p);
+    if (s.isDirectory()) walkSource(p);
+    else if (/\.(ts|tsx|js|jsx|css|html|mjs)$/i.test(name)) scanFile(p, ROOT, sourceResults);
+  }
+}
+
+walkSource(join(ROOT, "src"));
 
 // Manifest check
 const manifest = ["manifest.webmanifest", "manifest.json"].map((f) => join(HERE, f)).find(existsSync);
@@ -122,6 +135,8 @@ console.log();
 if (hasAbsoluteBundledAssets) {
   console.log(`${RED}${BOLD}الفحص فشل — شغّل npm run build:android بعد ضبط base: \"./\".${NC}`);
   process.exit(1);
+} else if (sourceResults.fail.length === 0 && results.fail.length > 0) {
+  console.log(`${YEL}${BOLD}تنبيه: الموارد الخارجية موجودة في مخرجات قديمة فقط. شغّل npm run build:android لإعادة توليد dist-capacitor.${NC}`);
 } else if (results.fail.length > 0) {
   console.log(`${RED}${BOLD}الفحص فشل — أصلح الموارد الخارجية أعلاه.${NC}`);
   process.exit(1);
