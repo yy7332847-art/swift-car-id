@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { motion } from "motion/react";
 import { Loader2, Car, ScanLine } from "lucide-react";
 import { SignupCelebration } from "@/components/SignupCelebration";
+import { InstallPWAButton } from "@/components/InstallPWAButton";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -67,6 +68,16 @@ function AuthPage() {
         <h1 className="text-3xl font-black">تشييك اللوحات</h1>
         <p className="mt-2 text-sm text-muted-foreground">تعرّف صوتي فوري على لوحات السيارات</p>
       </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="mb-5 flex justify-center"
+      >
+        <InstallPWAButton />
+      </motion.div>
+
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="glass rounded-3xl p-6">
         <div className="mb-5 grid grid-cols-2 gap-1 rounded-2xl bg-muted p-1">
