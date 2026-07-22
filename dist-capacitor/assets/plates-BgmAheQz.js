@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-BwA_5UX2.js";import{t}from"./MobileShell-dtqiWzFY.js";var n=e(),r=()=>(0,n.jsx)(t,{children:(0,n.jsx)(`div`,{className:`p-6 text-sm`,children:`غير موجود`})});export{r as notFoundComponent};
