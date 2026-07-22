@@ -43,7 +43,7 @@ export default defineConfig({
           globPatterns: ["**/*.{js,css,html,png,ico,webmanifest,woff,woff2,svg}"],
           runtimeCaching: [
             {
-              urlPattern: ({ request, url }) =>
+              urlPattern: ({ request, url }: { request: Request; url: URL }) =>
                 request.mode === "navigate" &&
                 url.origin === self.location.origin &&
                 !url.pathname.startsWith("/~oauth"),
@@ -55,7 +55,7 @@ export default defineConfig({
               },
             },
             {
-              urlPattern: ({ url }) =>
+              urlPattern: ({ url }: { url: URL }) =>
                 url.origin === self.location.origin && /^\/assets\/.*\.[a-z0-9-]+\./i.test(url.pathname),
               handler: "CacheFirst",
               options: {
@@ -65,7 +65,7 @@ export default defineConfig({
               },
             },
             {
-              urlPattern: ({ url }) =>
+              urlPattern: ({ url }: { url: URL }) =>
                 url.origin === self.location.origin &&
                 /(manifest\.webmanifest|favicon|icon-|apple-touch)/.test(url.pathname),
               handler: "StaleWhileRevalidate",
