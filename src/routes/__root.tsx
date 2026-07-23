@@ -91,7 +91,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_CAPTURE_SCRIPT }} />
       </head>
-      <body data-plate-app-ready="true">{children}<Scripts /></body>
+      <body>{children}<Scripts /></body>
     </html>
   );
 }
@@ -109,6 +109,7 @@ function RootComponent() {
     return () => sub.subscription.unsubscribe();
   }, [router, queryClient]);
   useEffect(() => { void registerPWA(); }, []);
+  useEffect(() => { document.body.setAttribute("data-plate-app-ready", "true"); }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <NativeSafeErrorBoundary>
