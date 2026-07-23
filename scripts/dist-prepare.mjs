@@ -67,7 +67,7 @@ const html = `<!doctype html>
     <script>(function(){if(window.__plateInstallPromptCaptureReady)return;window.__plateInstallPromptCaptureReady=true;window.__plateInstallPrompt=null;window.__platePwaInstalled=window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches;window.addEventListener('beforeinstallprompt',function(event){event.preventDefault();window.__plateInstallPrompt=event;window.dispatchEvent(new CustomEvent('platecheck-beforeinstallprompt'));});window.addEventListener('appinstalled',function(){window.__plateInstallPrompt=null;window.__platePwaInstalled=true;window.dispatchEvent(new CustomEvent('platecheck-appinstalled'));});})();</script>
 ${cssLinks}
   </head>
-  <body data-plate-app-ready="true">
+  <body>
     <noscript>يجب تفعيل JavaScript لتشغيل التطبيق.</noscript>
     <script type="module" src="./assets/${entry}"></script>
   </body>
