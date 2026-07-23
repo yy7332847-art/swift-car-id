@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Flame, MapPin, CalendarDays, Loader2, Layers } from "lucide-react";
-import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 
@@ -21,6 +20,8 @@ interface HeatPoint {
   plate: string;
   at: number;
 }
+
+type LeafletModule = typeof import("leaflet");
 
 function HeatmapPage() {
   const [rangeDays, setRangeDays] = useState<RangeDays>(30);
@@ -179,19 +180,27 @@ function StatCard({ label, value, tone = "primary", active, onClick }: { label: 
 
 function HeatmapLayer({ points, intensity, showMarkers, height }: { points: HeatPoint[]; intensity: number; showMarkers: boolean; height: number }) {
   const ref = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const heatRef = useRef<L.Layer | null>(null);
-  const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const leafletRef = useRef<LeafletModule | null>(null);
+  const mapRef = useRef<import("leaflet").Map | null>(null);
+  const heatRef = useRef<import("leaflet").Layer | null>(null);
+  const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
 
   useEffect(() => {
     if (!ref.current || mapRef.current) return;
-    const map = L.map(ref.current, { zoomControl: true, attributionControl: false });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
-    map.setView([24.7136, 46.6753], 6); // Riyadh default
-    mapRef.current = map;
-    markerLayerRef.current = L.layerGroup().addTo(map);
+    let cancelled = false;
+    (async () => {
+      const leaflet = await import("leaflet");
+      if (cancelled || !ref.current) return;
+      leafletRef.current = leaflet;
+      const map = leaflet.map(ref.current, { zoomControl: true, attributionControl: false });
+      leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+      map.setView([24.7136, 46.6753], 6); // Riyadh default
+      mapRef.current = map;
+      markerLayerRef.current = leaflet.layerGroup().addTo(map);
+    })();
     return () => {
-      map.remove();
+      cancelled = true;
+      mapRef.current?.remove();
       mapRef.current = null;
       heatRef.current = null;
       markerLayerRef.current = null;
@@ -202,7 +211,8 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
     let cancelled = false;
     (async () => {
       const map = mapRef.current;
-      if (!map) return;
+      const leaflet = leafletRef.current;
+      if (!map || !leaflet) return;
       await import("leaflet.heat");
       if (cancelled) return;
       if (heatRef.current) {
@@ -216,7 +226,7 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
         p.lng,
         p.status === "matched" ? 1 : p.status === "unknown" ? 0.7 : 0.4,
       ]);
-      const layer = (L as unknown as { heatLayer: (d: unknown, o: unknown) => L.Layer }).heatLayer(heatData, {
+      const layer = (leaflet as unknown as { heatLayer: (d: unknown, o: unknown) => import("leaflet").Layer }).heatLayer(heatData, {
         radius: intensity,
         blur: Math.round(intensity * 0.7),
         maxZoom: 17,
@@ -226,7 +236,7 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
       layer.addTo(map);
       heatRef.current = layer;
 
-      const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
+      const bounds = leaflet.latLngBounds(points.map((p) => [p.lat, p.lng]));
       if (bounds.isValid()) map.fitBounds(bounds.pad(0.15), { animate: true });
     })();
     return () => { cancelled = true; };
@@ -235,12 +245,13 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
 
   useEffect(() => {
     const layer = markerLayerRef.current;
-    if (!layer) return;
+    const leaflet = leafletRef.current;
+    if (!layer || !leaflet) return;
     layer.clearLayers();
     if (!showMarkers) return;
     for (const p of points.slice(0, 800)) {
       const color = p.status === "matched" ? "#22c55e" : p.status === "incomplete" ? "#f59e0b" : "#94a3b8";
-      L.circleMarker([p.lat, p.lng], {
+      leaflet.circleMarker([p.lat, p.lng], {
         radius: 4,
         color,
         fillColor: color,
