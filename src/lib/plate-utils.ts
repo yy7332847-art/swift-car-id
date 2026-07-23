@@ -45,6 +45,7 @@ const THOUSANDS = new Set(["الف", "الفا", "الاف", "الفين"]);
 const PLATE_LETTERS = new Set("ابحدرسصطعقكلمنهوي".split(""));
 const LETTER_NAMES: Record<string, string> = { "الف": "ا", "ا": "ا", "باء": "ب", "با": "ب", "ب": "ب", "تاء": "ت", "تا": "ت", "ت": "ت", "جيم": "ج", "ج": "ج", "حاء": "ح", "حا": "ح", "ح": "ح", "خاء": "خ", "خا": "خ", "خ": "خ", "دال": "د", "د": "د", "ذال": "ذ", "ذ": "ذ", "راء": "ر", "را": "ر", "ر": "ر", "زاي": "ز", "زين": "ز", "ز": "ز", "سين": "س", "س": "س", "شين": "ش", "ش": "ش", "صاد": "ص", "ص": "ص", "ضاد": "ض", "ض": "ض", "طاء": "ط", "طا": "ط", "ط": "ط", "ظاء": "ظ", "ظا": "ظ", "ظ": "ظ", "عين": "ع", "ع": "ع", "غين": "غ", "غ": "غ", "فاء": "ف", "فا": "ف", "ف": "ف", "قاف": "ق", "ق": "ق", "كاف": "ك", "ك": "ك", "لام": "ل", "ل": "ل", "ميم": "م", "م": "م", "نون": "ن", "ن": "ن", "هاء": "ه", "ها": "ه", "ه": "ه", "واو": "و", "و": "و", "ياء": "ي", "يا": "ي", "ي": "ي" };
 const COMMON_NON_PLATE_WORDS = new Set(["انا", "انت", "انتي", "انه", "اني", "هذا", "هذه", "اللي", "على", "علي", "السلام"]);
+const NUMBER_PREFIX_NOISE = new Set(["رقم", "ارقام", "نمره", "نمرة", "لوحه", "لوحة", "ع"]);
 
 function tokenize(text: string): string[] { return normalizeArabic(text).replace(/[،.,؟?!:؛;\-_/\\|()[\]{}]/g, " ").split(/\s+/).filter(Boolean); }
 function isNumberWord(word: string): boolean { return DIGIT_WORDS[word] !== undefined || TEENS[word] !== undefined || TENS[word] !== undefined || HUNDREDS[word] !== undefined || THOUSANDS.has(word); }
@@ -91,7 +92,7 @@ function parseArabicNumberRun(words: string[], startIdx: number): { value: strin
     directSeq += d;
     directConsumed++;
   }
-  if (directSeq.length >= 2) return { value: directSeq.slice(0, 4), consumed: directConsumed };
+  if (directSeq.length >= 1) return { value: directSeq.slice(0, 4), consumed: directConsumed };
 
   type Cand = { value: string; consumed: number; suspectPart?: string; correctionNote?: string };
   const candidates: Cand[] = [];
@@ -103,7 +104,7 @@ function parseArabicNumberRun(words: string[], startIdx: number): { value: strin
     if (DIGIT_WORDS[w] === undefined) break;
     seq += DIGIT_WORDS[w]; seqConsumed++;
   }
-  if (seq.length >= 2) return { value: seq, consumed: seqConsumed };
+  if (seq.length >= 1) return { value: seq, consumed: seqConsumed };
 
   // Strategy B: two two-digit groups ("اثنين واربعين اتنين وعشرين")
   const groups: string[] = [];
@@ -117,11 +118,13 @@ function parseArabicNumberRun(words: string[], startIdx: number): { value: strin
   if (groups.length >= 2) {
     const raw = groups.join("").slice(0, 4);
     candidates.push({ value: raw, consumed: groupConsumed });
+  } else if (groups.length === 1) {
+    candidates.push({ value: groups[0].slice(0, 4), consumed: groupConsumed });
   }
 
   // Strategy C: natural number ("اربعة الاف ومئتين واثنين")
   const nat = parseNaturalNumber(words, startIdx);
-  if (nat.value) candidates.push({ value: nat.value.padStart(nat.value.length >= 4 ? nat.value.length : 4, "0").slice(-4), consumed: nat.consumed });
+  if (nat.value) candidates.push({ value: nat.value.slice(-4), consumed: nat.consumed });
 
   // Special: two consecutive hundreds words (e.g. "ميتين ميتين" = 2200)
   const h1 = HUNDREDS[stripWa(words[startIdx] ?? "")], h2 = HUNDREDS[stripWa(words[startIdx + 1] ?? "")];
@@ -173,7 +176,7 @@ function pushFound(found: DetectedPlate[], plate: Omit<DetectedPlate, "raw" | "n
   const letters = plate.letters.slice(0, 3), digits = plate.digits.slice(0, 4);
   // Saudi plates need 3 official letters. Do not turn normal Arabic words
   // like "انا" or "السلام" into plate letters.
-  if (letters.length !== 3 || digits.length < 3) return;
+  if (letters.length !== 3 || digits.length < 1) return;
   if (!letters.split("").every((c) => PLATE_LETTERS.has(c))) return;
   const normalized = normalizePlate(letters + digits);
   if (found.some((f) => f.normalized === normalized)) return;
@@ -200,8 +203,9 @@ export function extractPlates(text: string): DetectedPlate[] {
       break;
     }
     if (letters.length === 3) {
+      while (j < words.length && NUMBER_PREFIX_NOISE.has(stripWa(words[j]))) j++;
       const parsed = parseArabicNumberRun(words, j);
-      if (parsed.value && parsed.value.length >= 2) {
+      if (parsed.value && parsed.value.length >= 1) {
         const short = letters.length !== 3 || parsed.value.length < 4;
         pushFound(found, { letters, digits: parsed.value, confidence: short ? 0.62 : 0.92, suspectPart: parsed.suspectPart ?? (short ? formatPlateParts(letters, parsed.value.slice(0, 4)) : undefined), correctionNote: parsed.correctionNote });
         i = Math.max(i, j + parsed.consumed - 1);
@@ -209,7 +213,7 @@ export function extractPlates(text: string): DetectedPlate[] {
     }
   }
   for (const w of words) {
-    const m = normalizePlate(w).match(/^([\u0621-\u064A]{3})(\d{2,6})$/);
+    const m = normalizePlate(w).match(/^([\u0621-\u064A]{3})(\d{1,6})$/);
     if (m && !COMMON_NON_PLATE_WORDS.has(m[1]) && m[1].split("").every((c) => PLATE_LETTERS.has(c))) pushFound(found, { letters: m[1], digits: m[2], confidence: 0.9 });
   }
   return found;

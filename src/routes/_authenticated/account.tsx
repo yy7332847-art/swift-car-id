@@ -8,6 +8,16 @@ import { useState } from "react";
 import { exportSessionExcel, exportSessionPDF, formatDuration, sessionDurationSec, type SessionRow } from "@/lib/report-export";
 
 export const Route = createFileRoute("/_authenticated/account")({
+  head: () => ({
+    meta: [
+      { title: "حسابي — مجدي للتشييك" },
+      { name: "description", content: "إدارة الحساب والاشتراك وتنزيل تقارير الجلسات من تطبيق مجدي للتشييك." },
+      { property: "og:title", content: "حسابي — مجدي للتشييك" },
+      { property: "og:description", content: "تابع اشتراكك وجلساتك وتقاريرك من حسابك." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: AccountPage,
 });
 

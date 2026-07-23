@@ -7,6 +7,16 @@ import { motion } from "motion/react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/status")({
+  head: () => ({
+    meta: [
+      { title: "حالة الاشتراك — مجدي للتشييك" },
+      { name: "description", content: "متابعة حالة الاشتراك أو التعطيل واختيار باقة جديدة." },
+      { property: "og:title", content: "حالة الاشتراك — مجدي للتشييك" },
+      { property: "og:description", content: "اعرف سبب إيقاف الوصول وخيارات تفعيل الحساب." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: StatusPage,
 });
 

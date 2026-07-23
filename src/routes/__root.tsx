@@ -16,7 +16,7 @@ import { Toaster } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { NativeSafeErrorBoundary } from "@/components/NativeSafeErrorBoundary";
 import { registerPWA } from "@/lib/pwa";
-import { INSTALL_PROMPT_CAPTURE_SCRIPT } from "@/lib/install-prompt";
+import { APP_RECOVERY_SCRIPT, INSTALL_PROMPT_CAPTURE_SCRIPT } from "@/lib/install-prompt";
 
 
 function NotFoundComponent() {
@@ -65,8 +65,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "تشييك اللوحات — نظام تعرّف صوتي على لوحات السيارات" },
       { name: "twitter:description", content: "نظام موبايل احترافي لمحصّلي البنوك: رفع ملفات لوحات ثم مطابقة صوتية فورية بالعربية" },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/3263ea0a-f4dc-4499-8e0a-2041048a97ba/id-preview-2c530d3e--bf7273b0-0155-484f-aaea-e301b920547e.lovable.app-1784546192359.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/3263ea0a-f4dc-4499-8e0a-2041048a97ba/id-preview-2c530d3e--bf7273b0-0155-484f-aaea-e301b920547e.lovable.app-1784546192359.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -87,6 +85,7 @@ function RootShell({ children }: { children: ReactNode }) {
     <html lang="ar" dir="rtl">
       <head>
         <HeadContent />
+        <script dangerouslySetInnerHTML={{ __html: APP_RECOVERY_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_CAPTURE_SCRIPT }} />
       </head>
@@ -108,6 +107,7 @@ function RootComponent() {
     return () => sub.subscription.unsubscribe();
   }, [router, queryClient]);
   useEffect(() => { void registerPWA(); }, []);
+  useEffect(() => { document.body.setAttribute("data-plate-app-ready", "true"); }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <NativeSafeErrorBoundary>

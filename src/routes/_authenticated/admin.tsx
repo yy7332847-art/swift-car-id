@@ -10,6 +10,16 @@ import {
 import { useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/admin")({
+  head: () => ({
+    meta: [
+      { title: "لوحة الإدارة — مجدي للتشييك" },
+      { name: "description", content: "إدارة المستخدمين والباقات وطلبات الشراء وسجل العمليات." },
+      { property: "og:title", content: "لوحة الإدارة — مجدي للتشييك" },
+      { property: "og:description", content: "تحكم في الاشتراكات والباقات وموافقات المستخدمين من لوحة الإدارة." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: AdminPage,
 });
 

@@ -26,6 +26,16 @@ function computePerfStats(samples: PerfSample[], queue: number): PerfStats {
 }
 
 export const Route = createFileRoute("/_authenticated/record")({
+  head: () => ({
+    meta: [
+      { title: "التسجيل الصوتي — مجدي للتشييك" },
+      { name: "description", content: "جلسة تسجيل صوتي فورية لاكتشاف لوحات السيارات ومطابقتها بقاعدة Excel." },
+      { property: "og:title", content: "التسجيل الصوتي — مجدي للتشييك" },
+      { property: "og:description", content: "اكتشاف لوحات السيارات من الكلام المباشر وعرض المطابقة فورًا أثناء القيادة." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: RecordPage,
 });
 
@@ -191,6 +201,8 @@ function RecordPage() {
   const draftSaveTimerRef = useRef<number | null>(null);
   const recentTextRef = useRef<Map<string, number>>(new Map());
   const lastInstantTextRef = useRef("");
+  const instantSpeechActiveRef = useRef(false);
+  const lastInstantAtRef = useRef(0);
   const ingestTextRef = useRef<(rawText: string) => { accepted: boolean; parseMs: number; matchMs: number; textLen: number }>((rawText) => ({ accepted: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
 
   const applyEntries = useCallback((next: PlateEntry[]) => {
@@ -246,7 +258,7 @@ function RecordPage() {
     const dedupeKey = text.replace(/[\s،.,؟?!:؛;\-_/\\|()[\]{}]/g, "");
     const lastAt = recentTextRef.current.get(dedupeKey);
     const now = Date.now();
-    if (lastAt && now - lastAt < 4500) return { accepted: false, parseMs: 0, matchMs: 0, textLen: text.length };
+    if (lastAt && now - lastAt < 650) return { accepted: false, parseMs: 0, matchMs: 0, textLen: text.length };
     recentTextRef.current.set(dedupeKey, now);
     for (const [key, at] of recentTextRef.current) if (now - at > 12000) recentTextRef.current.delete(key);
     setTranscript((prev) => (prev + " " + text).trim().slice(-3000));
@@ -378,8 +390,9 @@ function RecordPage() {
         if (event.results[i].isFinal) finalText += ` ${phrase}`;
         else interim += ` ${phrase}`;
       }
-      const visible = cleanRecognizedText(finalText || interim);
+      const visible = cleanRecognizedText(`${finalText} ${interim}`);
       if (visible) {
+        lastInstantAtRef.current = Date.now();
         setLiveText(visible);
         const key = visible.replace(/\s+/g, " ");
         if (key !== lastInstantTextRef.current) {
@@ -387,7 +400,7 @@ function RecordPage() {
           ingestTextRef.current(visible);
         }
       }
-      if (finalText && finalText !== visible) ingestTextRef.current(finalText);
+      if (finalText) ingestTextRef.current(finalText);
     };
     rec.onerror = () => undefined;
     rec.onend = () => {
@@ -396,12 +409,13 @@ function RecordPage() {
       }
     };
     speechRef.current = rec;
-    try { rec.start(); } catch { speechRef.current = null; }
+    try { rec.start(); instantSpeechActiveRef.current = true; } catch { speechRef.current = null; instantSpeechActiveRef.current = false; }
   }
 
   function stopInstantSpeech() {
     const rec = speechRef.current;
     speechRef.current = null;
+    instantSpeechActiveRef.current = false;
     if (!rec) return;
     rec.onend = null;
     try { rec.stop(); } catch { try { rec.abort(); } catch { /* noop */ } }
@@ -428,6 +442,10 @@ function RecordPage() {
       }
       const json = await res.json();
       sttMs = performance.now() - tStt;
+      // Browser speech recognition is the instant, user-visible source of truth.
+      // The server transcription is only a fallback when native live speech is absent/stale,
+      // so delayed or hallucinated chunks cannot add plates the driver did not say.
+      if (instantSpeechActiveRef.current && Date.now() - lastInstantAtRef.current < 6000) return;
       const metrics = ingestRecognizedText(json.text || "");
       parseMs = metrics.parseMs;
       matchMs = metrics.matchMs;

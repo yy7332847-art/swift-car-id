@@ -8,6 +8,16 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/packages")({
+  head: () => ({
+    meta: [
+      { title: "الباقات — مجدي للتشييك" },
+      { name: "description", content: "اختيار باقة الاشتراك ومتابعة طلبات الشراء وسجل الاشتراك." },
+      { property: "og:title", content: "الباقات — مجدي للتشييك" },
+      { property: "og:description", content: "اختر الباقة المناسبة لتفعيل نظام مطابقة اللوحات." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: PackagesPage,
 });
 
