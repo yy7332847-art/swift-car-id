@@ -7,6 +7,16 @@ import "leaflet/dist/leaflet.css";
 
 
 export const Route = createFileRoute("/_authenticated/heatmap")({
+  head: () => ({
+    meta: [
+      { title: "الخريطة الحرارية — مجدي للتشييك" },
+      { name: "description", content: "تحليل مناطق اكتشاف اللوحات خلال آخر 30 يومًا على خريطة حرارية." },
+      { property: "og:title", content: "الخريطة الحرارية — مجدي للتشييك" },
+      { property: "og:description", content: "اعرف أكثر مناطق التقاط اللوحات ونسب المطابقة جغرافيًا." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: HeatmapPage,
 });
 

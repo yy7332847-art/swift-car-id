@@ -6,6 +6,16 @@ import { motion } from "motion/react";
 import { Upload, Mic, ListChecks, Clock, Database, TrendingUp, ShieldAlert, Table } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/home")({
+  head: () => ({
+    meta: [
+      { title: "الرئيسية — مجدي للتشييك" },
+      { name: "description", content: "لوحة المستخدم لمتابعة اللوحات والجلسات وبدء التسجيل الصوتي الفوري." },
+      { property: "og:title", content: "الرئيسية — مجدي للتشييك" },
+      { property: "og:description", content: "ابدأ التسجيل وارفع ملفات Excel وتابع إحصائيات المطابقة من حسابك." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: HomePage,
 });
 

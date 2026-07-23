@@ -5,6 +5,16 @@ import { motion } from "motion/react";
 import { ListChecks, CheckCircle2, AlertTriangle, ChevronLeft } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/sessions/")({
+  head: () => ({
+    meta: [
+      { title: "سجل الجلسات — مجدي للتشييك" },
+      { name: "description", content: "عرض جلسات التعرّف السابقة مع ملخص التطابق والأخطاء والتقارير." },
+      { property: "og:title", content: "سجل الجلسات — مجدي للتشييك" },
+      { property: "og:description", content: "راجع جلساتك السابقة وافتح تقرير كل جلسة وخريطتها." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: SessionsListPage,
 });
 

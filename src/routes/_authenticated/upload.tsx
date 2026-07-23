@@ -9,6 +9,16 @@ import * as XLSX from "xlsx";
 import { normalizePlate, splitPlate } from "@/lib/plate-utils";
 
 export const Route = createFileRoute("/_authenticated/upload")({
+  head: () => ({
+    meta: [
+      { title: "رفع Excel — مجدي للتشييك" },
+      { name: "description", content: "رفع وإدارة نسخ ملفات Excel الخاصة بلوحات السيارات ومراجعة تقرير الأخطاء." },
+      { property: "og:title", content: "رفع Excel — مجدي للتشييك" },
+      { property: "og:description", content: "حدّث قاعدة لوحاتك الخاصة واعرف الأخطاء قبل بدء جلسات التسجيل." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: UploadPage,
 });
 

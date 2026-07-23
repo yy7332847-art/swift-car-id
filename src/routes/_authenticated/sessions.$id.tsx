@@ -14,6 +14,16 @@ import { pathToGPX, pathToKML, shareOrDownload, rebuildPath, type GeoPoint, type
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/sessions/$id")({
+  head: () => ({
+    meta: [
+      { title: "تفاصيل الجلسة — مجدي للتشييك" },
+      { name: "description", content: "تفاصيل جلسة التعرّف الصوتي مع الخريطة والتقرير وملفات GPX/KML." },
+      { property: "og:title", content: "تفاصيل الجلسة — مجدي للتشييك" },
+      { property: "og:description", content: "راجع اللوحات المكتشفة ومواقعها وصدّر تقرير الجلسة." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: SessionDetailPage,
 });
 

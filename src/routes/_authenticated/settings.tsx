@@ -5,6 +5,16 @@ import { toast } from "sonner";
 import { DEFAULT_SETTINGS, loadSettings, resetSettings, saveSettings, type AppSettings } from "@/lib/settings";
 
 export const Route = createFileRoute("/_authenticated/settings")({
+  head: () => ({
+    meta: [
+      { title: "الإعدادات — مجدي للتشييك" },
+      { name: "description", content: "ضبط إعدادات التتبع والتنبيهات وتوفير البطارية داخل التطبيق." },
+      { property: "og:title", content: "الإعدادات — مجدي للتشييك" },
+      { property: "og:description", content: "خصّص أداء التطبيق والتتبع حسب احتياجك." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: SettingsPage,
 });
 

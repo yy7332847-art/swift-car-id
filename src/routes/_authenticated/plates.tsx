@@ -10,6 +10,16 @@ import { motion } from "motion/react";
 import { Search, MapPin, Clock, CheckCircle2, AlertTriangle, Circle, Download, Loader2, ExternalLink } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/plates")({
+  head: () => ({
+    meta: [
+      { title: "جدول اللوحات — مجدي للتشييك" },
+      { name: "description", content: "بحث سريع في قاعدة اللوحات الخاصة ومتابعة حالة كل لوحة وسجلها." },
+      { property: "og:title", content: "جدول اللوحات — مجدي للتشييك" },
+      { property: "og:description", content: "استعرض لوحاتك الخاصة واعرف آخر مرة تم اكتشاف كل لوحة." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: PlatesPage,
   errorComponent: ({ error }) => <div className="p-6 text-sm text-destructive">{error.message}</div>,
   notFoundComponent: () => <div className="p-6 text-sm">غير موجود</div>,
