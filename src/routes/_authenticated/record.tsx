@@ -380,7 +380,7 @@ function RecordPage() {
         if (event.results[i].isFinal) finalText += ` ${phrase}`;
         else interim += ` ${phrase}`;
       }
-      const visible = cleanRecognizedText(finalText || interim);
+      const visible = cleanRecognizedText(`${finalText} ${interim}`);
       if (visible) {
         lastInstantAtRef.current = Date.now();
         setLiveText(visible);
@@ -390,7 +390,7 @@ function RecordPage() {
           ingestTextRef.current(visible);
         }
       }
-      if (finalText && finalText !== visible) ingestTextRef.current(finalText);
+      if (finalText) ingestTextRef.current(finalText);
     };
     rec.onerror = () => undefined;
     rec.onend = () => {
