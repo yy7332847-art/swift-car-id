@@ -180,6 +180,7 @@ function StatCard({ label, value, tone = "primary", active, onClick }: { label: 
 
 function HeatmapLayer({ points, intensity, showMarkers, height }: { points: HeatPoint[]; intensity: number; showMarkers: boolean; height: number }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [mapReady, setMapReady] = useState(false);
   const leafletRef = useRef<LeafletModule | null>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const heatRef = useRef<import("leaflet").Layer | null>(null);
@@ -197,6 +198,7 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
       map.setView([24.7136, 46.6753], 6); // Riyadh default
       mapRef.current = map;
       markerLayerRef.current = leaflet.layerGroup().addTo(map);
+      setMapReady(true);
     })();
     return () => {
       cancelled = true;
@@ -204,6 +206,7 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
       mapRef.current = null;
       heatRef.current = null;
       markerLayerRef.current = null;
+      setMapReady(false);
     };
   }, []);
 
@@ -212,7 +215,7 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
     (async () => {
       const map = mapRef.current;
       const leaflet = leafletRef.current;
-      if (!map || !leaflet) return;
+      if (!mapReady || !map || !leaflet) return;
       await import("leaflet.heat");
       if (cancelled) return;
       if (heatRef.current) {
@@ -240,13 +243,13 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
       if (bounds.isValid()) map.fitBounds(bounds.pad(0.15), { animate: true });
     })();
     return () => { cancelled = true; };
-  }, [points, intensity]);
+  }, [points, intensity, mapReady]);
 
 
   useEffect(() => {
     const layer = markerLayerRef.current;
     const leaflet = leafletRef.current;
-    if (!layer || !leaflet) return;
+    if (!mapReady || !layer || !leaflet) return;
     layer.clearLayers();
     if (!showMarkers) return;
     for (const p of points.slice(0, 800)) {
@@ -261,7 +264,7 @@ function HeatmapLayer({ points, intensity, showMarkers, height }: { points: Heat
         .bindPopup(`<b>${p.plate || "لوحة"}</b><br/>${new Date(p.at).toLocaleString("ar-EG")}`)
         .addTo(layer);
     }
-  }, [points, showMarkers]);
+  }, [points, showMarkers, mapReady]);
 
   return <div ref={ref} style={{ height, width: "100%" }} />;
 }
