@@ -26,6 +26,16 @@ function computePerfStats(samples: PerfSample[], queue: number): PerfStats {
 }
 
 export const Route = createFileRoute("/_authenticated/record")({
+  head: () => ({
+    meta: [
+      { title: "التسجيل الصوتي — مجدي للتشييك" },
+      { name: "description", content: "جلسة تسجيل صوتي فورية لاكتشاف لوحات السيارات ومطابقتها بقاعدة Excel." },
+      { property: "og:title", content: "التسجيل الصوتي — مجدي للتشييك" },
+      { property: "og:description", content: "اكتشاف لوحات السيارات من الكلام المباشر وعرض المطابقة فورًا أثناء القيادة." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: RecordPage,
 });
 

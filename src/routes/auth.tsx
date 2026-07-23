@@ -8,7 +8,16 @@ import { SignupCelebration } from "@/components/SignupCelebration";
 import { InstallPWAButton } from "@/components/InstallPWAButton";
 
 export const Route = createFileRoute("/auth")({
-  ssr: false,
+  head: () => ({
+    meta: [
+      { title: "تسجيل الدخول — مجدي للتشييك" },
+      { name: "description", content: "تسجيل الدخول إلى تطبيق مجدي للتشييك لمطابقة لوحات السيارات صوتيًا." },
+      { property: "og:title", content: "تسجيل الدخول — مجدي للتشييك" },
+      { property: "og:description", content: "ادخل إلى حسابك في نظام التعرّف الصوتي على لوحات السيارات." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: AuthPage,
 });
 
