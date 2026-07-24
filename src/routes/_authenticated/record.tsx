@@ -273,6 +273,65 @@ function RecordPage() {
     setVoiceStatus((prev) => ({ ...prev, ...patch, restarts: voiceRestartCountRef.current, errors: voiceErrorCountRef.current }));
   }, []);
 
+  const logDiag = useCallback((type: string, data?: Record<string, unknown>) => {
+    const buf = diagnosticsLogRef.current;
+    buf.push({ t: Date.now(), type, data });
+    if (buf.length > 500) buf.splice(0, buf.length - 500);
+  }, []);
+
+  const exportDiagnostics = useCallback(() => {
+    const now = Date.now();
+    const events = diagnosticsLogRef.current;
+    const counts: Record<string, number> = {};
+    for (const e of events) counts[e.type] = (counts[e.type] ?? 0) + 1;
+    const report = {
+      generatedAt: new Date(now).toISOString(),
+      appVersion: "plate-check",
+      session: {
+        id: sessionIdRef.current,
+        startedAt: diagSessionStartRef.current ? new Date(diagSessionStartRef.current).toISOString() : null,
+        durationSec: diagSessionStartRef.current ? Math.round((now - diagSessionStartRef.current) / 1000) : 0,
+        recording,
+      },
+      device: {
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        mobile: isMobileSpeechDevice(),
+        language: typeof navigator !== "undefined" ? navigator.language : "",
+        online: typeof navigator !== "undefined" ? navigator.onLine : true,
+      },
+      voiceStatus,
+      perfStats,
+      totals: {
+        entries: entriesRef.current.length,
+        pending: chunkQueueRef.current.length,
+        restarts: voiceRestartCountRef.current,
+        errors: voiceErrorCountRef.current,
+        sttBackoffMs: sttBackoffMsRef.current,
+        sttBackoffUntil: sttBackoffUntilRef.current ? new Date(sttBackoffUntilRef.current).toISOString() : null,
+        lastAudioChunkAt: lastAudioChunkAtRef.current ? new Date(lastAudioChunkAtRef.current).toISOString() : null,
+        lastSttOkAt: lastSttOkAtRef.current ? new Date(lastSttOkAtRef.current).toISOString() : null,
+      },
+      eventCounts: counts,
+      events: events.map((e) => ({ at: new Date(e.t).toISOString(), tOffsetMs: e.t - diagSessionStartRef.current, type: e.type, ...(e.data ? { data: e.data } : {}) })),
+    };
+    try {
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
+      a.href = url;
+      a.download = `plate-diagnostics-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      toast.success(`تم تصدير تقرير التشخيص (${events.length} حدث)`);
+    } catch (err) {
+      toast.error("تعذر تصدير التشخيص");
+      console.error(err);
+    }
+  }, [recording, voiceStatus, perfStats]);
+
   const applyEntries = useCallback((next: PlateEntry[]) => {
     entriesRef.current = next;
     setEntries(next);
