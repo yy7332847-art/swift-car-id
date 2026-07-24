@@ -629,8 +629,12 @@ function RecordPage() {
         voiceErrorCountRef.current++;
         const bodyText = await res.text().catch(() => "");
         if (res.status === 429) {
-          sttBackoffMsRef.current = sttBackoffMsRef.current ? Math.min(sttBackoffMsRef.current * 2, 30000) : 6000;
-          sttBackoffUntilRef.current = Date.now() + sttBackoffMsRef.current;
+          // Softer backoff with jitter — the old ×2 up to 30s made the app
+          // "die" for half a minute after two overlapping chunks.
+          const base = sttBackoffMsRef.current ? Math.min(sttBackoffMsRef.current * 1.6, 9000) : 1800;
+          const jitter = Math.floor(Math.random() * 600);
+          sttBackoffMsRef.current = base;
+          sttBackoffUntilRef.current = Date.now() + base + jitter;
         }
         logDiag("stt_error", { status: res.status, statusText: res.statusText, backoffMs: sttBackoffMsRef.current, chunkMs: meta?.durationMs, rms: meta?.rms, body: bodyText.slice(0, 400) });
         updateVoiceStatus({ mode: "error", message: res.status === 429 ? "ضغط عالي على التعرف — أبطّئ الطلبات تلقائياً بدون إيقاف الجلسة" : "تعذر تحليل مقطع صوتي — التسجيل مستمر" });
