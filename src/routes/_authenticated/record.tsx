@@ -675,7 +675,7 @@ function RecordPage() {
       }
     }, 2500);
     return () => window.clearInterval(iv);
-  }, [recording, startCapture, updateVoiceStatus]);
+  }, [recording, startCapture, updateVoiceStatus, logDiag]);
 
   async function ensureGeoPermission(): Promise<PermissionState> {
     try {
