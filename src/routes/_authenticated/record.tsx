@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
 import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, Activity, Copy, GitMerge, HelpCircle } from "lucide-react";
-import { startRecorder, type RecorderHandle } from "@/lib/audio-recorder";
+import { startRecorder, type RecorderChunkMeta, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
 import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, runGeoPreflight, isAndroid, type GeoPoint, type WatchHandle, type PermissionState, type GeoPreflight } from "@/lib/geo";
@@ -73,6 +73,9 @@ type BrowserSpeechRecognition = {
   abort: () => void;
 };
 
+type TextSource = "instant" | "stt";
+type IngestMetrics = { accepted: boolean; captured: boolean; parseMs: number; matchMs: number; textLen: number };
+
 function createSpeechRecognition(): BrowserSpeechRecognition | null {
   if (typeof window === "undefined") return null;
   const w = window as typeof window & { SpeechRecognition?: new () => BrowserSpeechRecognition; webkitSpeechRecognition?: new () => BrowserSpeechRecognition };
@@ -82,6 +85,34 @@ function createSpeechRecognition(): BrowserSpeechRecognition | null {
 
 function cleanRecognizedText(input: string): string {
   return input.replace(/\s+/g, " ").trim();
+}
+
+function isMobileSpeechDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+function playCaptureTone(complete: boolean) {
+  if (typeof window === "undefined") return;
+  const AudioCtor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtor) return;
+  try {
+    const ctx = new AudioCtor();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = complete ? 880 : 520;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.055, ctx.currentTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + (complete ? 0.11 : 0.18));
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + (complete ? 0.12 : 0.2));
+    window.setTimeout(() => { void ctx.close().catch(() => undefined); }, 260);
+  } catch {
+    // Audio feedback is best-effort only.
+  }
 }
 
 function RecordPage() {
@@ -188,11 +219,11 @@ function RecordPage() {
   const pathRef = useRef<GeoPoint[]>([]);
   const recorderRef = useRef<RecorderHandle | null>(null);
   const speechRef = useRef<BrowserSpeechRecognition | null>(null);
-  const processChunkRef = useRef<(wav: Blob) => void>(() => undefined);
+  const processChunkRef = useRef<(wav: Blob, meta?: RecorderChunkMeta) => void>(() => undefined);
   const pendingRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
   const entriesRef = useRef<PlateEntry[]>([]);
-  const growableRef = useRef<Map<string, { entryId: string; digits: string }>>(new Map());
+  const growableRef = useRef<Map<string, { entryId: string; digits: string; at: number; normalized: string }>>(new Map());
   const finalizedRef = useRef<Map<string, number>>(new Map());
   const restoredRef = useRef(false);
   const perfBufferRef = useRef<PerfSample[]>([]);
@@ -203,7 +234,9 @@ function RecordPage() {
   const lastInstantTextRef = useRef("");
   const instantSpeechActiveRef = useRef(false);
   const lastInstantAtRef = useRef(0);
-  const ingestTextRef = useRef<(rawText: string) => { accepted: boolean; parseMs: number; matchMs: number; textLen: number }>((rawText) => ({ accepted: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
+  const lastInstantPlateAtRef = useRef(0);
+  const lastIncompleteToneAtRef = useRef(0);
+  const ingestTextRef = useRef<(rawText: string, opts?: { source?: TextSource; partial?: boolean }) => IngestMetrics>((rawText) => ({ accepted: false, captured: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
 
   const applyEntries = useCallback((next: PlateEntry[]) => {
     entriesRef.current = next;
@@ -229,7 +262,7 @@ function RecordPage() {
         overlapSeconds: 0.2,
         targetSampleRate: 16000,
         onLevel: setLevel,
-        onChunk: (wav) => processChunkRef.current(wav),
+        onChunk: (wav, meta) => processChunkRef.current(wav, meta),
       });
     } catch (err) {
       setRecording(false);
@@ -250,25 +283,27 @@ function RecordPage() {
     localStorage.removeItem(DRAFT_KEY);
   }, [applyEntries, platesLoading, startCapture]);
 
-  const ingestRecognizedText = useCallback((rawText: string) => {
+  const ingestRecognizedText = useCallback((rawText: string, opts: { source?: TextSource; partial?: boolean } = {}) => {
+    const source = opts.source ?? "instant";
     const text = cleanRecognizedText(rawText);
     const tParseStart = performance.now();
-    if (!text || text.length < 2) return { accepted: false, parseMs: 0, matchMs: 0, textLen: text.length };
-    setLiveText(text);
+    if (!text || text.length < 2) return { accepted: false, captured: false, parseMs: 0, matchMs: 0, textLen: text.length };
+    if (source === "instant" || isMobileSpeechDevice() || !instantSpeechActiveRef.current) setLiveText(text);
     const dedupeKey = text.replace(/[\s،.,؟?!:؛;\-_/\\|()[\]{}]/g, "");
     const lastAt = recentTextRef.current.get(dedupeKey);
     const now = Date.now();
-    if (lastAt && now - lastAt < 650) return { accepted: false, parseMs: 0, matchMs: 0, textLen: text.length };
+    if (lastAt && now - lastAt < 650) return { accepted: false, captured: false, parseMs: 0, matchMs: 0, textLen: text.length };
     recentTextRef.current.set(dedupeKey, now);
     for (const [key, at] of recentTextRef.current) if (now - at > 12000) recentTextRef.current.delete(key);
     setTranscript((prev) => (prev + " " + text).trim().slice(-3000));
     const plates = extractPlates(text);
     const parseMs = performance.now() - tParseStart;
-    if (plates.length === 0) return { accepted: true, parseMs, matchMs: 0, textLen: text.length };
+    if (plates.length === 0) return { accepted: true, captured: false, parseMs, matchMs: 0, textLen: text.length };
     const tMatchStart = performance.now();
+    let captured = false;
 
     for (const p of plates) {
-      if (!p.complete && !plateAppearsInText(p.letters, p.digits, text)) continue;
+      if (!plateAppearsInText(p.letters, p.digits, text)) continue;
       const match = platesIndex?.map.get(p.normalized);
       const isMatched = !!match && p.complete && p.confidence >= 0.85;
       const closest = !isMatched ? findClosestPlate(p.normalized, platesIndex?.list ?? []) : null;
@@ -279,26 +314,32 @@ function RecordPage() {
       };
       const key = enriched.letters;
       const existing = growableRef.current.get(key);
-      if (existing) {
-        if (enriched.digits.length <= existing.digits.length) continue;
+      if (existing && enriched.digits.startsWith(existing.digits) && enriched.digits.length > existing.digits.length && now - existing.at < 6000) {
         applyEntries(entriesRef.current.map((e) => e.id === existing.entryId ? {
           ...e,
           ...enriched,
           spokenText: `${e.spokenText} ${text}`.trim().slice(-700),
-          matchedPlateId: isMatched ? match!.id : null,
+          matchedPlateId: isMatched && match ? match.id : null,
           closestPlate: closest,
-          matchedPlate: isMatched ? toMatched(match!) : undefined,
+          matchedPlate: isMatched && match ? toMatched(match) : undefined,
         } : e));
+        captured = true;
         setLastCapture({ raw: enriched.raw, complete: enriched.complete, matched: isMatched, at: now });
         if (enriched.complete) {
           growableRef.current.delete(key);
           finalizedRef.current.set(enriched.normalized, now);
+          playCaptureTone(true);
           if (isMatched) {
             if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
-            toast.success(`تطابق: ${enriched.raw}`, { description: match!.car_type || undefined });
+            toast.success(`تطابق: ${enriched.raw}`, { description: match?.car_type || undefined });
           }
         } else {
-          growableRef.current.set(key, { ...existing, digits: enriched.digits });
+          growableRef.current.set(key, { ...existing, digits: enriched.digits, at: now, normalized: enriched.normalized });
+          if (now - lastIncompleteToneAtRef.current > 1800) {
+            lastIncompleteToneAtRef.current = now;
+            playCaptureTone(false);
+            if (navigator.vibrate) navigator.vibrate(25);
+          }
         }
         continue;
       }
@@ -339,20 +380,22 @@ function RecordPage() {
         id: crypto.randomUUID(),
         spokenAt: now,
         spokenText: text,
-        matchedPlateId: isMatched ? match!.id : null,
+        matchedPlateId: isMatched && match ? match.id : null,
         closestPlate: closest,
         latitude: pos?.lat ?? null,
         longitude: pos?.lng ?? null,
-        matchedPlate: isMatched ? toMatched(match!) : undefined,
+        matchedPlate: isMatched && match ? toMatched(match) : undefined,
         duplicateOfId: dupInfo?.originalId ?? null,
         duplicateDecision: dupInfo?.decision ?? null,
         duplicateDistanceM: dupInfo?.distanceM ?? null,
         duplicateGapSec: dupInfo?.gapSec ?? null,
       };
       applyEntries([entry, ...entriesRef.current].slice(0, 500));
+      captured = true;
       setLastCapture({ raw: enriched.raw, complete: enriched.complete, matched: isMatched, at: now });
       if (enriched.complete) {
         finalizedRef.current.set(enriched.normalized, now);
+        playCaptureTone(true);
         if (dupInfo?.needsPrompt) {
           setDuplicatePrompt({ entryId: entry.id, original: dupInfo.original, match: dupInfo.match });
           if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
@@ -360,13 +403,19 @@ function RecordPage() {
           toast(`مكرّرة تلقائياً: ${enriched.raw}`, { description: `${formatGap(dupInfo.gapSec)} • ${formatDistance(dupInfo.distanceM)}` });
         } else if (isMatched) {
           if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
-          toast.success(`تطابق: ${enriched.raw}`, { description: match!.car_type || undefined });
+          toast.success(`تطابق: ${enriched.raw}`, { description: match?.car_type || undefined });
         }
       } else {
-        growableRef.current.set(key, { entryId: entry.id, digits: enriched.digits });
+        growableRef.current.set(key, { entryId: entry.id, digits: enriched.digits, at: now, normalized: enriched.normalized });
+        if (now - lastIncompleteToneAtRef.current > 1800) {
+          lastIncompleteToneAtRef.current = now;
+          playCaptureTone(false);
+          if (navigator.vibrate) navigator.vibrate(25);
+        }
       }
     }
-    return { accepted: true, parseMs, matchMs: performance.now() - tMatchStart, textLen: text.length };
+    if (source === "instant" && captured) lastInstantPlateAtRef.current = now;
+    return { accepted: true, captured, parseMs, matchMs: performance.now() - tMatchStart, textLen: text.length };
   }, [applyEntries, platesIndex]);
 
   useEffect(() => {
@@ -397,10 +446,10 @@ function RecordPage() {
         const key = visible.replace(/\s+/g, " ");
         if (key !== lastInstantTextRef.current) {
           lastInstantTextRef.current = key;
-          ingestTextRef.current(visible);
+          ingestTextRef.current(visible, { source: "instant", partial: !finalText });
         }
       }
-      if (finalText) ingestTextRef.current(finalText);
+      if (finalText) ingestTextRef.current(finalText, { source: "instant" });
     };
     rec.onerror = () => undefined;
     rec.onend = () => {
@@ -421,7 +470,7 @@ function RecordPage() {
     try { rec.stop(); } catch { try { rec.abort(); } catch { /* noop */ } }
   }
 
-  const processChunk = useCallback(async (wav: Blob) => {
+  const processChunk = useCallback(async (wav: Blob, meta?: RecorderChunkMeta) => {
     pendingRef.current++;
     setProcessing(true);
     const t0 = performance.now();
@@ -434,19 +483,32 @@ function RecordPage() {
       if (!token || !sessionIdRef.current) return;
       const form = new FormData();
       form.append("audio", wav, "chunk.wav");
+      form.append("stream", "true");
+      if (meta) form.append("rms", String(meta.rms));
       const tStt = performance.now();
       const res = await fetch("/api/transcribe", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
       if (!res.ok) {
         console.error("STT", res.status, await res.text().catch(() => ""));
         return;
       }
-      const json = await res.json();
       sttMs = performance.now() - tStt;
       // Browser speech recognition is the instant, user-visible source of truth.
-      // The server transcription is only a fallback when native live speech is absent/stale,
-      // so delayed or hallucinated chunks cannot add plates the driver did not say.
-      if (instantSpeechActiveRef.current && Date.now() - lastInstantAtRef.current < 6000) return;
-      const metrics = ingestRecognizedText(json.text || "");
+      // On mobile, Web Speech is often unavailable or unreliable; server STT is the reliable path.
+      // On desktop, suppress delayed STT only when native speech has already captured a plate.
+      if (!isMobileSpeechDevice() && instantSpeechActiveRef.current && Date.now() - lastInstantPlateAtRef.current < 2500) return;
+      const contentType = res.headers.get("content-type") ?? "";
+      let finalText = "";
+      let metrics: IngestMetrics = { accepted: false, captured: false, parseMs: 0, matchMs: 0, textLen: 0 };
+      if (contentType.includes("text/event-stream") && res.body) {
+        finalText = await readTranscriptionStream(res.body, (partial) => {
+          metrics = ingestTextRef.current(partial, { source: "stt", partial: true });
+        });
+        if (finalText) metrics = ingestTextRef.current(finalText, { source: "stt" });
+      } else {
+        const json = await res.json();
+        finalText = json.text || "";
+        metrics = ingestRecognizedText(finalText, { source: "stt" });
+      }
       parseMs = metrics.parseMs;
       matchMs = metrics.matchMs;
       textLen = metrics.textLen;
@@ -466,7 +528,7 @@ function RecordPage() {
   }, [ingestRecognizedText]);
 
   useEffect(() => {
-    processChunkRef.current = (wav: Blob) => { void processChunk(wav); };
+    processChunkRef.current = (wav: Blob, meta?: RecorderChunkMeta) => { void processChunk(wav, meta); };
   }, [processChunk]);
 
   async function ensureGeoPermission(): Promise<PermissionState> {
@@ -996,12 +1058,54 @@ function missingPartsLabel(p: DetectedPlate): string | undefined {
   return missing.length ? `ينقص ${missing.join(" و ")}` : undefined;
 }
 
-function rebuildDedupState(entries: PlateEntry[], growable: Map<string, { entryId: string; digits: string }>, finalized: Map<string, number>) {
+async function readTranscriptionStream(body: ReadableStream<Uint8Array>, onPartial: (text: string) => void): Promise<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let partial = "";
+  let final = "";
+  let lastEmit = 0;
+
+  const consumeLine = (line: string) => {
+    if (!line.startsWith("data:")) return;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") return;
+    try {
+      const event = JSON.parse(payload) as { type?: string; delta?: string; text?: string };
+      if (event.type === "transcript.text.delta" && event.delta) {
+        partial += event.delta;
+        const now = Date.now();
+        const cleaned = cleanRecognizedText(partial);
+        if (cleaned.length >= 2 && now - lastEmit > 220) {
+          lastEmit = now;
+          onPartial(cleaned);
+        }
+      } else if (event.type === "transcript.text.done" && event.text) {
+        final = event.text;
+      }
+    } catch {
+      // Ignore malformed SSE keepalive lines.
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+    for (const line of lines) consumeLine(line);
+  }
+  if (buffer) consumeLine(buffer);
+  return cleanRecognizedText(final || partial);
+}
+
+function rebuildDedupState(entries: PlateEntry[], growable: Map<string, { entryId: string; digits: string; at: number; normalized: string }>, finalized: Map<string, number>) {
   growable.clear();
   finalized.clear();
   for (const e of entries) {
     if (e.complete) finalized.set(e.normalized, e.spokenAt);
-    else growable.set(e.letters, { entryId: e.id, digits: e.digits });
+    else growable.set(e.letters, { entryId: e.id, digits: e.digits, at: e.spokenAt, normalized: e.normalized });
   }
 }
 

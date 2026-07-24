@@ -41,14 +41,20 @@ export const Route = createFileRoute("/api/transcribe")({
         if (!audio || typeof audio === "string") {
           return new Response(JSON.stringify({ error: "No audio" }), { status: 400 });
         }
+        const stream = inForm.get("stream") === "true";
 
         const upstream = new FormData();
         const asFile = audio as File;
+        if (asFile.size < 1024) return new Response(JSON.stringify({ error: "Audio is empty" }), { status: 400 });
+        if (asFile.size > 25 * 1024 * 1024) return new Response(JSON.stringify({ error: "Audio is too large" }), { status: 413 });
+        const mime = asFile.type || "audio/wav";
+        if (!mime.startsWith("audio/")) return new Response(JSON.stringify({ error: "Unsupported audio type" }), { status: 400 });
         const name = asFile.name || "recording.wav";
         upstream.append("model", "openai/gpt-4o-transcribe");
         upstream.append("file", audio as Blob, name);
         upstream.append("language", "ar");
         upstream.append("temperature", "0");
+        if (stream) upstream.append("stream", "true");
         upstream.append("prompt", "انسخ الكلام العربي المسموع حرفياً فقط كما قيل. لا تضف كلمات، لا تكمل لوحة ناقصة، لا تحوّل النص إلى لوحة، ولا تحذف التحيات أو الكلمات العادية إذا كانت مسموعة.");
 
         try {
@@ -61,6 +67,9 @@ export const Route = createFileRoute("/api/transcribe")({
           if (!res.ok) {
             console.error("STT gateway error", res.status, bodyText);
             return new Response(JSON.stringify({ error: bodyText || "Transcription failed", status: res.status }), { status: res.status });
+          }
+          if (stream) {
+            return new Response(res.body, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store" } });
           }
           return new Response(bodyText, { headers: { "Content-Type": "application/json" } });
         } catch (err) {
