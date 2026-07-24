@@ -6,13 +6,23 @@ export interface RecorderOptions {
   chunkSeconds: number;
   targetSampleRate?: number; // default 16000
   overlapSeconds?: number; // default 0.4
-  onChunk: (wav: Blob) => void;
+  onChunk: (wav: Blob, meta: RecorderChunkMeta) => void;
   onLevel?: (level: number) => void;
 }
 
+export interface RecorderChunkMeta {
+  rms: number;
+  durationMs: number;
+  sampleRate: number;
+}
 
 export interface RecorderHandle {
   stop: () => Promise<void>;
+}
+
+function isMobileAudioDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
 function encodeWav(samples: Float32Array, sampleRate: number): Blob {
@@ -59,12 +69,20 @@ function downsample(input: Float32Array, inRate: number, outRate: number): Float
 
 export async function startRecorder(opts: RecorderOptions): Promise<RecorderHandle> {
   const targetRate = opts.targetSampleRate ?? 16000;
+  const mobile = isMobileAudioDevice();
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    audio: {
+      channelCount: { ideal: 1 },
+      echoCancellation: mobile ? false : true,
+      noiseSuppression: mobile ? false : true,
+      autoGainControl: true,
+      sampleRate: { ideal: 48000 },
+    },
   });
   const ac = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  if (ac.state === "suspended") await ac.resume().catch(() => undefined);
   const source = ac.createMediaStreamSource(stream);
-  const processor = ac.createScriptProcessor(2048, 1, 1);
+  const processor = ac.createScriptProcessor(mobile ? 4096 : 2048, 1, 1);
 
   let buffer: Float32Array[] = [];
   let lastFlush = performance.now();
@@ -89,7 +107,7 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   };
 
   function flush() {
-    if (bufSamples < ac.sampleRate * 0.4) return;
+    if (bufSamples < ac.sampleRate * 0.25) return;
     const merged = new Float32Array((overlap?.length ?? 0) + bufSamples);
     let o = 0;
     if (overlap) { merged.set(overlap, 0); o = overlap.length; }
@@ -103,9 +121,10 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
     let sum = 0;
     for (let i = 0; i < ds.length; i++) sum += ds[i] * ds[i];
     const rms = Math.sqrt(sum / ds.length);
-    if (rms < 0.0015) return;
+    const minRms = mobile ? 0.00055 : 0.001;
+    if (rms < minRms) return;
     const wav = encodeWav(ds, targetRate);
-    opts.onChunk(wav);
+    opts.onChunk(wav, { rms, durationMs: (ds.length / targetRate) * 1000, sampleRate: targetRate });
   }
 
   source.connect(processor);

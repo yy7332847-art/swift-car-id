@@ -44,7 +44,7 @@ const THOUSANDS = new Set(["الف", "الفا", "الاف", "الفين"]);
 // Official Saudi plate letters only.
 const PLATE_LETTERS = new Set("ابحدرسصطعقكلمنهوي".split(""));
 const LETTER_NAMES: Record<string, string> = { "الف": "ا", "ا": "ا", "باء": "ب", "با": "ب", "ب": "ب", "تاء": "ت", "تا": "ت", "ت": "ت", "جيم": "ج", "ج": "ج", "حاء": "ح", "حا": "ح", "ح": "ح", "خاء": "خ", "خا": "خ", "خ": "خ", "دال": "د", "د": "د", "ذال": "ذ", "ذ": "ذ", "راء": "ر", "را": "ر", "ر": "ر", "زاي": "ز", "زين": "ز", "ز": "ز", "سين": "س", "س": "س", "شين": "ش", "ش": "ش", "صاد": "ص", "ص": "ص", "ضاد": "ض", "ض": "ض", "طاء": "ط", "طا": "ط", "ط": "ط", "ظاء": "ظ", "ظا": "ظ", "ظ": "ظ", "عين": "ع", "ع": "ع", "غين": "غ", "غ": "غ", "فاء": "ف", "فا": "ف", "ف": "ف", "قاف": "ق", "ق": "ق", "كاف": "ك", "ك": "ك", "لام": "ل", "ل": "ل", "ميم": "م", "م": "م", "نون": "ن", "ن": "ن", "هاء": "ه", "ها": "ه", "ه": "ه", "واو": "و", "و": "و", "ياء": "ي", "يا": "ي", "ي": "ي" };
-const COMMON_NON_PLATE_WORDS = new Set(["انا", "انت", "انتي", "انه", "اني", "هذا", "هذه", "اللي", "على", "علي", "السلام"]);
+const COMMON_NON_PLATE_WORDS = new Set(["انا", "انت", "انتي", "انه", "اني", "هذا", "هذه", "اللي", "على", "علي", "السلام", "عليكم", "ورحمه", "ورحمة", "الله", "وبركاته", "تمام", "يعني", "كده", "اه", "ايوه"]);
 const NUMBER_PREFIX_NOISE = new Set(["رقم", "ارقام", "نمره", "نمرة", "لوحه", "لوحة", "ع"]);
 
 function tokenize(text: string): string[] { return normalizeArabic(text).replace(/[،.,؟?!:؛;\-_/\\|()[\]{}]/g, " ").split(/\s+/).filter(Boolean); }
@@ -176,12 +176,14 @@ function pushFound(found: DetectedPlate[], plate: Omit<DetectedPlate, "raw" | "n
   const letters = plate.letters.slice(0, 3), digits = plate.digits.slice(0, 4);
   // Saudi plates need 3 official letters. Do not turn normal Arabic words
   // like "انا" or "السلام" into plate letters.
-  if (letters.length !== 3 || digits.length < 1) return;
+  if (letters.length < 2 || digits.length < 1) return;
+  if (letters.length < 3 && digits.length < 2) return;
   if (!letters.split("").every((c) => PLATE_LETTERS.has(c))) return;
   const normalized = normalizePlate(letters + digits);
   if (found.some((f) => f.normalized === normalized)) return;
   const complete = letters.length === 3 && digits.length === 4;
-  found.push({ raw: formatPlateParts(letters, digits), normalized, letters, digits, complete, confidence: plate.confidence ?? (complete ? 0.92 : 0.62), suspectPart: plate.suspectPart, correctionNote: plate.correctionNote });
+  const suspectPart = plate.suspectPart ?? (!complete ? `ينقص ${letters.length < 3 ? `${3 - letters.length} حرف` : ""}${letters.length < 3 && digits.length < 4 ? " و " : ""}${digits.length < 4 ? `${4 - digits.length} رقم` : ""}` : undefined);
+  found.push({ raw: formatPlateParts(letters, digits), normalized, letters, digits, complete, confidence: plate.confidence ?? (complete ? 0.92 : 0.56), suspectPart, correctionNote: plate.correctionNote });
 }
 
 export function extractPlates(text: string): DetectedPlate[] {
@@ -202,7 +204,7 @@ export function extractPlates(text: string): DetectedPlate[] {
       }
       break;
     }
-    if (letters.length === 3) {
+    if (letters.length >= 2) {
       while (j < words.length && NUMBER_PREFIX_NOISE.has(stripWa(words[j]))) j++;
       const parsed = parseArabicNumberRun(words, j);
       if (parsed.value && parsed.value.length >= 1) {
@@ -213,7 +215,7 @@ export function extractPlates(text: string): DetectedPlate[] {
     }
   }
   for (const w of words) {
-    const m = normalizePlate(w).match(/^([\u0621-\u064A]{3})(\d{1,6})$/);
+    const m = normalizePlate(w).match(/^([\u0621-\u064A]{2,3})(\d{1,6})$/);
     if (m && !COMMON_NON_PLATE_WORDS.has(m[1]) && m[1].split("").every((c) => PLATE_LETTERS.has(c))) pushFound(found, { letters: m[1], digits: m[2], confidence: 0.9 });
   }
   return found;
