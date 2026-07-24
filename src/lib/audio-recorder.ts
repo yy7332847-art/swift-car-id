@@ -82,17 +82,30 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   });
   const ac = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
   if (ac.state === "suspended") await ac.resume().catch(() => undefined);
+  // Auto-resume when the tab regains focus (mobile browsers suspend on background).
+  const resumeIfNeeded = () => { if (ac.state === "suspended") void ac.resume().catch(() => undefined); };
+  const onVisibility = () => { if (typeof document !== "undefined" && document.visibilityState === "visible") resumeIfNeeded(); };
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+  if (typeof window !== "undefined") window.addEventListener("focus", resumeIfNeeded);
   const source = ac.createMediaStreamSource(stream);
   const highpass = ac.createBiquadFilter();
   highpass.type = "highpass";
-  highpass.frequency.value = mobile ? 95 : 80;
+  // Mobile: keep low frequencies of guttural letters (ع/ح/خ) — 60Hz cutoff
+  // instead of 95Hz preserves the leading sound the recognizer was dropping.
+  highpass.frequency.value = mobile ? 60 : 75;
   highpass.Q.value = 0.7;
+  // Pre-gain: mobile mics are often held far from the mouth; boost before the
+  // compressor so quiet speech reaches a usable level without hard-clipping.
+  const preGain = ac.createGain();
+  preGain.gain.value = mobile ? 2.2 : 1.4;
   const compressor = ac.createDynamicsCompressor();
-  compressor.threshold.value = -48;
-  compressor.knee.value = 24;
-  compressor.ratio.value = 7;
-  compressor.attack.value = 0.004;
-  compressor.release.value = 0.18;
+  // Softer curve: preserves consonant transients that the old aggressive
+  // -48dB / 7:1 setting was flattening into an unrecognizable mush.
+  compressor.threshold.value = -32;
+  compressor.knee.value = 20;
+  compressor.ratio.value = 3;
+  compressor.attack.value = 0.005;
+  compressor.release.value = 0.22;
   const processor = ac.createScriptProcessor(mobile ? 4096 : 2048, 1, 1);
   const monitor = ac.createGain();
   monitor.gain.value = 0;
