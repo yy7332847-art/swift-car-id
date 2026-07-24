@@ -1229,7 +1229,7 @@ function LiveStatusBar({ processing, transcript, lastCapture, level }: { process
   return <div className="mb-3 overflow-hidden rounded-2xl border border-border p-2.5"><div className="flex items-center gap-2"><span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${tone.pill}`}><Icon className={`h-3.5 w-3.5 ${state === "transcribing" ? "animate-spin" : ""}`} />{label}</span>{transcript && <span className="ml-auto truncate text-[10.5px] text-muted-foreground" dir="rtl">{transcript.slice(-80)}</span>}</div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/60">{state === "transcribing" ? <motion.div className={`h-full ${tone.bar}`} initial={{ x: "-40%", width: "40%" }} animate={{ x: "100%" }} transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }} /> : <motion.div className={`h-full ${tone.bar}`} animate={{ width: `${barPct}%` }} transition={{ duration: 0.15 }} />}</div></div>;
 }
 
-function VoiceDiagnostics({ status, level }: { status: VoiceStatus; level: number }) {
+function VoiceDiagnostics({ status, level, onExport }: { status: VoiceStatus; level: number; onExport?: () => void }) {
   const tone = status.mode === "error"
     ? "border-destructive/40 bg-destructive/10 text-destructive"
     : status.mode === "recovering" || status.mode === "low"
@@ -1250,6 +1250,15 @@ function VoiceDiagnostics({ status, level }: { status: VoiceStatus; level: numbe
         <div className="rounded-lg bg-background/60 px-1.5 py-1">إعادة <b className="text-foreground tabular-nums">{status.restarts}</b></div>
         <div className="rounded-lg bg-background/60 px-1.5 py-1">أخطاء <b className="text-foreground tabular-nums">{status.errors}</b></div>
       </div>
+      {onExport && (
+        <button
+          type="button"
+          onClick={onExport}
+          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-current/30 bg-background/40 px-2 py-1.5 text-[10.5px] font-bold text-foreground hover:bg-background/70"
+        >
+          <FileDown className="h-3.5 w-3.5" /> تصدير تقرير التشخيص
+        </button>
+      )}
     </div>
   );
 }
