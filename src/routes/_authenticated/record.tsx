@@ -260,6 +260,15 @@ function RecordPage() {
   const rollingSpeechBufferRef = useRef<{ text: string; at: number }[]>([]);
   const ingestTextRef = useRef<(rawText: string, opts?: { source?: TextSource; partial?: boolean }) => IngestMetrics>((rawText) => ({ accepted: false, captured: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
 
+  type DiagEvent = { t: number; type: string; data?: Record<string, unknown> };
+  const diagnosticsLogRef = useRef<DiagEvent[]>([]);
+  const diagSessionStartRef = useRef<number>(Date.now());
+  const logDiag = useCallback((type: string, data?: Record<string, unknown>) => {
+    const buf = diagnosticsLogRef.current;
+    buf.push({ t: Date.now(), type, data });
+    if (buf.length > 500) buf.splice(0, buf.length - 500);
+  }, []);
+
   const updateVoiceStatus = useCallback((patch: Partial<VoiceStatus>) => {
     setVoiceStatus((prev) => ({ ...prev, ...patch, restarts: voiceRestartCountRef.current, errors: voiceErrorCountRef.current }));
   }, []);
