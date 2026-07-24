@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
 import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, Activity, Copy, GitMerge, HelpCircle, FileDown } from "lucide-react";
 import { startRecorder, type RecorderChunkMeta, type RecorderHandle } from "@/lib/audio-recorder";
-import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
+import { displayPlateLetter, extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
 import { checkGeoPermission, requestGeoPermission, watchGeo, shouldAcceptPoint, smoothPath, runGeoPreflight, isAndroid, type GeoPoint, type WatchHandle, type PermissionState, type GeoPreflight } from "@/lib/geo";
 import { loadSettings } from "@/lib/settings";
@@ -77,6 +77,7 @@ type BrowserSpeechRecognition = {
 type TextSource = "instant" | "stt";
 type IngestMetrics = { accepted: boolean; captured: boolean; parseMs: number; matchMs: number; textLen: number };
 type PendingAudioChunk = { wav: Blob; meta?: RecorderChunkMeta; queuedAt: number };
+type LivePlateDraft = DetectedPlate & { at: number; spokenText: string; closestPlate?: { raw: string; score: number } | null };
 type VoiceStatus = {
   mode: "idle" | "listening" | "low" | "queued" | "recovering" | "error";
   message: string;
@@ -205,6 +206,7 @@ function RecordPage() {
   const [processing, setProcessing] = useState(false);
   const [level, setLevel] = useState(0);
   const [entries, setEntries] = useState<PlateEntry[]>([]);
+  const [liveDraft, setLiveDraft] = useState<LivePlateDraft | null>(null);
   const [transcript, setTranscript] = useState("");
   const [liveText, setLiveText] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -448,6 +450,16 @@ function RecordPage() {
         correctionNote: p.correctionNote ?? (closest ? `أقرب بديل في Excel: ${closest.raw} بنسبة ${Math.round(closest.score * 100)}%` : undefined),
       };
       const key = enriched.letters;
+      if (!enriched.complete && !autoP) {
+        setLiveDraft({ ...enriched, at: now, spokenText: parseText, closestPlate: closest });
+        setLastCapture({ raw: enriched.raw, complete: false, matched: false, at: now });
+        if (now - lastIncompleteToneAtRef.current > 2200) {
+          lastIncompleteToneAtRef.current = now;
+          playCaptureTone(false);
+          if (navigator.vibrate) navigator.vibrate(18);
+        }
+        continue;
+      }
       const existing = growableRef.current.get(key);
       if (existing && enriched.digits.startsWith(existing.digits) && enriched.digits.length > existing.digits.length && now - existing.at < 6000) {
         applyEntries(entriesRef.current.map((e) => e.id === existing.entryId ? {
@@ -463,6 +475,8 @@ function RecordPage() {
         if (enriched.complete) {
           growableRef.current.delete(key);
           finalizedRef.current.set(enriched.normalized, now);
+          setLiveDraft(null);
+          rollingSpeechBufferRef.current = [];
           playCaptureTone(true);
           if (isMatched) {
             if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
@@ -530,6 +544,8 @@ function RecordPage() {
       setLastCapture({ raw: enriched.raw, complete: enriched.complete, matched: isMatched, at: now });
       if (enriched.complete) {
         finalizedRef.current.set(enriched.normalized, now);
+        setLiveDraft(null);
+        rollingSpeechBufferRef.current = [];
         playCaptureTone(true);
         if (dupInfo?.needsPrompt) {
           setDuplicatePrompt({ entryId: entry.id, original: dupInfo.original, match: dupInfo.match });
@@ -881,6 +897,7 @@ function RecordPage() {
       setSessionId(draftId);
       setSavedSessionId(null);
       applyEntries([]);
+      setLiveDraft(null);
       setTranscript("");
       setLiveText("");
       lastInstantTextRef.current = "";
@@ -1050,6 +1067,7 @@ function RecordPage() {
     setStartedAt(null);
     setTranscript("");
     setLiveText("");
+      setLiveDraft(null);
     applyEntries([]);
     setPath([]);
     pathRef.current = [];
@@ -1095,6 +1113,8 @@ function RecordPage() {
           {transcript && <div className="mt-2 max-h-24 overflow-auto rounded-xl bg-background/60 p-2 text-sm font-bold leading-7 text-muted-foreground">{transcript}</div>}
         </div>
       )}
+
+      {recording && liveDraft && <LiveDraftCard draft={liveDraft} />}
 
       {recording && (
         <div className="mb-3 space-y-1.5">
@@ -1210,7 +1230,7 @@ function PerfCell({ label, value, unit, highlight }: { label: string; value: str
 const PlateCard = memo(function PlateCard({ entry, allEntries, onReopenDuplicate }: { entry: PlateEntry; allEntries?: PlateEntry[]; onReopenDuplicate?: (e: PlateEntry) => void }) {
   const [open, setOpen] = useState(false);
   const matched = !!entry.matchedPlate;
-  const lettersSpaced = entry.letters.split("").join(" ");
+  const lettersSpaced = entry.letters.split("").map(displayPlateLetter).join(" ");
   const digitsSpaced = entry.digits.split("").join(" ");
   const isDup = !!entry.duplicateOfId && entry.duplicateDecision === "same";
   const isUnresolved = !!entry.duplicateOfId && (entry.duplicateDecision === "unresolved" || !entry.duplicateDecision);
@@ -1254,7 +1274,24 @@ const PlateCard = memo(function PlateCard({ entry, allEntries, onReopenDuplicate
 function MissingPlateParts({ entry }: { entry: PlateEntry }) {
   const letters = entry.letters.split("");
   const digits = entry.digits.split("");
-  return <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]"><span className="text-muted-foreground">الناقص:</span>{[0, 1, 2].map((i) => <span key={`l${i}`} className={`grid h-6 w-6 place-items-center rounded-md border font-mono font-black ${letters[i] ? "border-primary/30 bg-primary/10 text-primary" : "border-warning/40 bg-warning/15 text-warning"}`}>{letters[i] ?? "ح"}</span>)}<span className="mx-1 text-muted-foreground">—</span>{[0, 1, 2, 3].map((i) => <span key={`d${i}`} className={`grid h-6 w-6 place-items-center rounded-md border font-mono font-black ${digits[i] ? "border-foreground/15 bg-muted/50" : "border-warning/40 bg-warning/15 text-warning"}`}>{digits[i] ?? "#"}</span>)}{entry.closestPlate && <span className="basis-full text-warning">أقرب بديل: {entry.closestPlate.raw}</span>}</div>;
+  return <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]"><span className="text-muted-foreground">الناقص:</span>{[0, 1, 2].map((i) => <span key={`l${i}`} className={`grid h-6 w-6 place-items-center rounded-md border font-mono font-black ${letters[i] ? "border-primary/30 bg-primary/10 text-primary" : "border-warning/40 bg-warning/15 text-warning"}`}>{letters[i] ? displayPlateLetter(letters[i]) : "ح"}</span>)}<span className="mx-1 text-muted-foreground">—</span>{[0, 1, 2, 3].map((i) => <span key={`d${i}`} className={`grid h-6 w-6 place-items-center rounded-md border font-mono font-black ${digits[i] ? "border-foreground/15 bg-muted/50" : "border-warning/40 bg-warning/15 text-warning"}`}>{digits[i] ?? "#"}</span>)}{entry.closestPlate && <span className="basis-full text-warning">أقرب بديل: {entry.closestPlate.raw}</span>}</div>;
+}
+
+function LiveDraftCard({ draft }: { draft: LivePlateDraft }) {
+  const lettersSpaced = draft.letters.split("").map(displayPlateLetter).join(" ");
+  const digitsSpaced = draft.digits.split("").join(" ");
+  const asEntry = { ...draft, id: "draft", spokenAt: draft.at, matchedPlateId: null } as PlateEntry;
+  return (
+    <div className="mb-3 rounded-2xl border border-warning/35 bg-warning/10 p-3 text-right" dir="rtl">
+      <div className="mb-2 flex items-center gap-2 text-[11px] font-black text-warning">
+        <AlertTriangle className="h-4 w-4" /> المسودة الحالية — لن تُحفظ حتى تكتمل
+      </div>
+      <p className="font-mono text-xl font-black tracking-[0.3em]"><span className="text-primary" dir="rtl">{lettersSpaced || "—"}</span><span className="mx-2 text-muted-foreground">—</span><span dir="ltr">{digitsSpaced || "—"}</span></p>
+      <p className="mt-1 text-[10.5px] text-muted-foreground">{draft.suspectPart ?? missingPartsLabel(draft) ?? "بانتظار اكتمال اللوحة"}</p>
+      <MissingPlateParts entry={asEntry} />
+      <p className="mt-2 rounded-lg bg-background/55 px-2 py-1 text-xs font-bold leading-5">{draft.spokenText.slice(-220)}</p>
+    </div>
+  );
 }
 
 function Row({ label, value }: { label: string; value: string | null }) {
