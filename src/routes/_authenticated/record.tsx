@@ -60,13 +60,14 @@ const DRAFT_KEY = "platecheck.active-recording-draft.v4";
 
 type SpeechRecognitionResultLike = { isFinal: boolean; 0: { transcript: string } };
 type SpeechRecognitionEventLike = { resultIndex: number; results: SpeechRecognitionResultLike[] };
+type SpeechRecognitionErrorLike = { error?: string };
 type BrowserSpeechRecognition = {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
   maxAlternatives: number;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorLike) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
@@ -75,6 +76,15 @@ type BrowserSpeechRecognition = {
 
 type TextSource = "instant" | "stt";
 type IngestMetrics = { accepted: boolean; captured: boolean; parseMs: number; matchMs: number; textLen: number };
+type PendingAudioChunk = { wav: Blob; meta?: RecorderChunkMeta; queuedAt: number };
+type VoiceStatus = {
+  mode: "idle" | "listening" | "low" | "queued" | "recovering" | "error";
+  message: string;
+  queue: number;
+  restarts: number;
+  errors: number;
+  lastRms: number;
+};
 
 function createSpeechRecognition(): BrowserSpeechRecognition | null {
   if (typeof window === "undefined") return null;
@@ -211,6 +221,7 @@ function RecordPage() {
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [preflightLoading, setPreflightLoading] = useState(false);
   const [duplicatePrompt, setDuplicatePrompt] = useState<{ entryId: string; original: PlateEntry; match: DuplicateMatch } | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>({ mode: "idle", message: "جاهز", queue: 0, restarts: 0, errors: 0, lastRms: 0 });
 
   const currentPosRef = useRef<GeoPoint | null>(null);
   const geoWatchRef = useRef<WatchHandle | null>(null);
@@ -220,6 +231,10 @@ function RecordPage() {
   const recorderRef = useRef<RecorderHandle | null>(null);
   const speechRef = useRef<BrowserSpeechRecognition | null>(null);
   const processChunkRef = useRef<(wav: Blob, meta?: RecorderChunkMeta) => void>(() => undefined);
+  const chunkQueueRef = useRef<PendingAudioChunk[]>([]);
+  const processingLoopActiveRef = useRef(false);
+  const recorderRestartingRef = useRef(false);
+  const speechRestartTimerRef = useRef<number | null>(null);
   const pendingRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
   const entriesRef = useRef<PlateEntry[]>([]);
@@ -236,7 +251,15 @@ function RecordPage() {
   const lastInstantAtRef = useRef(0);
   const lastInstantPlateAtRef = useRef(0);
   const lastIncompleteToneAtRef = useRef(0);
+  const lastAudioChunkAtRef = useRef(0);
+  const lastSttOkAtRef = useRef(0);
+  const voiceRestartCountRef = useRef(0);
+  const voiceErrorCountRef = useRef(0);
   const ingestTextRef = useRef<(rawText: string, opts?: { source?: TextSource; partial?: boolean }) => IngestMetrics>((rawText) => ({ accepted: false, captured: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
+
+  const updateVoiceStatus = useCallback((patch: Partial<VoiceStatus>) => {
+    setVoiceStatus((prev) => ({ ...prev, ...patch, restarts: voiceRestartCountRef.current, errors: voiceErrorCountRef.current }));
+  }, []);
 
   const applyEntries = useCallback((next: PlateEntry[]) => {
     entriesRef.current = next;
@@ -258,11 +281,12 @@ function RecordPage() {
       startGeoTracking();
       startInstantSpeech();
       recorderRef.current = await startRecorder({
-        chunkSeconds: 0.75,
-        overlapSeconds: 0.2,
+        chunkSeconds: isMobileSpeechDevice() ? 1.15 : 0.95,
+        overlapSeconds: isMobileSpeechDevice() ? 0.45 : 0.3,
         targetSampleRate: 16000,
         onLevel: setLevel,
         onChunk: (wav, meta) => processChunkRef.current(wav, meta),
+        onChunkSkipped: (meta) => updateVoiceStatus({ mode: "low", message: "الصوت منخفض — قرّب الميكروفون أو ارفع صوتك", lastRms: meta.rms }),
       });
     } catch (err) {
       setRecording(false);
@@ -270,7 +294,7 @@ function RecordPage() {
       stopGeoTracking();
       throw err;
     }
-  }, []);
+  }, [updateVoiceStatus]);
 
   useEffect(() => {
     localStorage.removeItem(DRAFT_KEY);
@@ -451,10 +475,18 @@ function RecordPage() {
       }
       if (finalText) ingestTextRef.current(finalText, { source: "instant" });
     };
-    rec.onerror = () => undefined;
+    rec.onerror = (event: SpeechRecognitionErrorLike) => {
+      instantSpeechActiveRef.current = false;
+      voiceErrorCountRef.current++;
+      updateVoiceStatus({ mode: "recovering", message: event?.error === "no-speech" ? "لم يصل كلام واضح — أعيد فتح السماع" : "أعيد تشغيل السماع المباشر" });
+      try { rec.abort(); } catch { /* noop */ }
+      if (sessionIdRef.current) scheduleInstantSpeechRestart(450);
+    };
     rec.onend = () => {
-      if (recording || sessionIdRef.current) {
-        try { rec.start(); } catch { /* already started */ }
+      instantSpeechActiveRef.current = false;
+      if (sessionIdRef.current) {
+        speechRef.current = null;
+        scheduleInstantSpeechRestart(350);
       }
     };
     speechRef.current = rec;
@@ -462,6 +494,10 @@ function RecordPage() {
   }
 
   function stopInstantSpeech() {
+    if (speechRestartTimerRef.current) {
+      window.clearTimeout(speechRestartTimerRef.current);
+      speechRestartTimerRef.current = null;
+    }
     const rec = speechRef.current;
     speechRef.current = null;
     instantSpeechActiveRef.current = false;
@@ -470,9 +506,19 @@ function RecordPage() {
     try { rec.stop(); } catch { try { rec.abort(); } catch { /* noop */ } }
   }
 
+  function scheduleInstantSpeechRestart(delayMs: number) {
+    if (speechRestartTimerRef.current) window.clearTimeout(speechRestartTimerRef.current);
+    speechRestartTimerRef.current = window.setTimeout(() => {
+      speechRestartTimerRef.current = null;
+      if (!sessionIdRef.current || speechRef.current) return;
+      voiceRestartCountRef.current++;
+      startInstantSpeech();
+    }, delayMs);
+  }
+
   const processChunk = useCallback(async (wav: Blob, meta?: RecorderChunkMeta) => {
-    pendingRef.current++;
     setProcessing(true);
+    if (meta) updateVoiceStatus({ mode: "queued", message: "أحلّل الصوت الآن", lastRms: meta.rms, queue: chunkQueueRef.current.length });
     const t0 = performance.now();
     const chunkGap = lastChunkAtRef.current ? t0 - lastChunkAtRef.current : 0;
     lastChunkAtRef.current = t0;
@@ -486,8 +532,13 @@ function RecordPage() {
       form.append("stream", "true");
       if (meta) form.append("rms", String(meta.rms));
       const tStt = performance.now();
-      const res = await fetch("/api/transcribe", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 12000);
+      const res = await fetch("/api/transcribe", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form, signal: controller.signal });
+      window.clearTimeout(timeout);
       if (!res.ok) {
+        voiceErrorCountRef.current++;
+        updateVoiceStatus({ mode: "error", message: res.status === 429 ? "ضغط عالي على التعرف — سأبطّئ الطلبات تلقائياً" : "تعذر تحليل مقطع صوتي — التسجيل مستمر" });
         console.error("STT", res.status, await res.text().catch(() => ""));
         return;
       }
@@ -512,7 +563,11 @@ function RecordPage() {
       parseMs = metrics.parseMs;
       matchMs = metrics.matchMs;
       textLen = metrics.textLen;
+      lastSttOkAtRef.current = Date.now();
+      updateVoiceStatus({ mode: metrics.captured ? "listening" : "queued", message: metrics.captured ? "تم التقاط لوحة — السماع مستمر" : "أسمع الصوت ولم أجد لوحة مكتملة بعد", queue: chunkQueueRef.current.length });
     } catch (err) {
+      voiceErrorCountRef.current++;
+      updateVoiceStatus({ mode: "recovering", message: err instanceof DOMException && err.name === "AbortError" ? "تحليل الصوت تأخر — تجاوزت المقطع وأكملت" : "حدث انقطاع مؤقت — التسجيل مستمر" });
       console.error(err);
     } finally {
       const totalMs = performance.now() - t0;
@@ -520,16 +575,70 @@ function RecordPage() {
       const buf = perfBufferRef.current;
       buf.push(sample);
       if (buf.length > PERF_BUFFER_SIZE) buf.shift();
-      setPerfStats(computePerfStats(buf, pendingRef.current - 1));
-      if (import.meta.env.DEV) console.debug("[perf]", { gap: `${sample.chunkGapMs.toFixed(0)}ms`, stt: `${sttMs.toFixed(0)}ms`, parse: `${parseMs.toFixed(0)}ms`, total: `${totalMs.toFixed(0)}ms`, textLen, queue: pendingRef.current - 1 });
-      pendingRef.current--;
-      if (pendingRef.current === 0) setProcessing(false);
+      setPerfStats(computePerfStats(buf, chunkQueueRef.current.length));
+      if (import.meta.env.DEV) console.debug("[perf]", { gap: `${sample.chunkGapMs.toFixed(0)}ms`, stt: `${sttMs.toFixed(0)}ms`, parse: `${parseMs.toFixed(0)}ms`, total: `${totalMs.toFixed(0)}ms`, textLen, queue: chunkQueueRef.current.length });
     }
-  }, [ingestRecognizedText]);
+  }, [ingestRecognizedText, updateVoiceStatus]);
+
+  const drainAudioQueue = useCallback(async () => {
+    if (processingLoopActiveRef.current) return;
+    processingLoopActiveRef.current = true;
+    try {
+      while (sessionIdRef.current && chunkQueueRef.current.length > 0) {
+        const next = chunkQueueRef.current.shift();
+        pendingRef.current = chunkQueueRef.current.length + 1;
+        updateVoiceStatus({ queue: chunkQueueRef.current.length, mode: "queued", message: "أحلّل الصوت الآن" });
+        if (next) await processChunk(next.wav, next.meta);
+      }
+    } finally {
+      processingLoopActiveRef.current = false;
+      pendingRef.current = chunkQueueRef.current.length;
+      if (pendingRef.current === 0) setProcessing(false);
+      updateVoiceStatus({ queue: chunkQueueRef.current.length, mode: sessionIdRef.current ? "listening" : "idle", message: sessionIdRef.current ? "السماع مستمر" : "جاهز" });
+      if (sessionIdRef.current && chunkQueueRef.current.length > 0) void drainAudioQueue();
+    }
+  }, [processChunk, updateVoiceStatus]);
+
+  const enqueueAudioChunk = useCallback((wav: Blob, meta?: RecorderChunkMeta) => {
+    lastAudioChunkAtRef.current = Date.now();
+    const maxQueue = isMobileSpeechDevice() ? 4 : 5;
+    while (chunkQueueRef.current.length >= maxQueue) chunkQueueRef.current.shift();
+    chunkQueueRef.current.push({ wav, meta, queuedAt: Date.now() });
+    pendingRef.current = chunkQueueRef.current.length + (processingLoopActiveRef.current ? 1 : 0);
+    updateVoiceStatus({ mode: chunkQueueRef.current.length > 2 ? "queued" : "listening", message: chunkQueueRef.current.length > 2 ? "يوجد صوت كثير — أعالج الأحدث أولاً" : "وصل صوت واضح", queue: chunkQueueRef.current.length, lastRms: meta?.rms ?? 0 });
+    void drainAudioQueue();
+  }, [drainAudioQueue, updateVoiceStatus]);
 
   useEffect(() => {
-    processChunkRef.current = (wav: Blob, meta?: RecorderChunkMeta) => { void processChunk(wav, meta); };
-  }, [processChunk]);
+    processChunkRef.current = enqueueAudioChunk;
+  }, [enqueueAudioChunk]);
+
+  useEffect(() => {
+    if (!recording) return;
+    const iv = window.setInterval(() => {
+      const now = Date.now();
+      if (recorderRef.current && lastAudioChunkAtRef.current && now - lastAudioChunkAtRef.current > 6500 && !recorderRestartingRef.current) {
+        recorderRestartingRef.current = true;
+        voiceRestartCountRef.current++;
+        updateVoiceStatus({ mode: "recovering", message: "لم يصل صوت جديد — أعيد فتح الميكروفون تلقائياً" });
+        void (async () => {
+          try {
+            await recorderRef.current?.stop();
+            recorderRef.current = null;
+            await startCapture();
+          } catch {
+            voiceErrorCountRef.current++;
+            updateVoiceStatus({ mode: "error", message: "تعذر إعادة فتح الميكروفون — اضغط إيقاف ثم ابدأ" });
+          } finally {
+            recorderRestartingRef.current = false;
+          }
+        })();
+      } else if (sessionIdRef.current && lastSttOkAtRef.current && now - lastSttOkAtRef.current > 15000 && chunkQueueRef.current.length === 0) {
+        updateVoiceStatus({ mode: "low", message: "لا توجد لوحات جديدة — تأكد من وضوح النطق وقرب الميكروفون" });
+      }
+    }, 2500);
+    return () => window.clearInterval(iv);
+  }, [recording, startCapture, updateVoiceStatus]);
 
   async function ensureGeoPermission(): Promise<PermissionState> {
     try {
@@ -623,6 +732,13 @@ function RecordPage() {
       sessionIdRef.current = draftId;
       growableRef.current = new Map();
       finalizedRef.current = new Map();
+      chunkQueueRef.current = [];
+      pendingRef.current = 0;
+      lastAudioChunkAtRef.current = 0;
+      lastSttOkAtRef.current = 0;
+      voiceErrorCountRef.current = 0;
+      voiceRestartCountRef.current = 0;
+      setVoiceStatus({ mode: "listening", message: "جاري فتح الميكروفون", queue: 0, restarts: 0, errors: 0, lastRms: 0 });
       setSessionId(draftId);
       setSavedSessionId(null);
       applyEntries([]);
@@ -644,6 +760,7 @@ function RecordPage() {
   async function stopRecording() {
     setRecording(false);
     stopInstantSpeech();
+    chunkQueueRef.current = chunkQueueRef.current.slice(-2);
     await recorderRef.current?.stop();
     recorderRef.current = null;
     stopGeoTracking();
@@ -829,6 +946,7 @@ function RecordPage() {
       </div>
 
       {recording && <LiveStatusBar processing={processing} transcript={liveText || transcript} lastCapture={lastCapture} level={level} />}
+      {recording && <VoiceDiagnostics status={voiceStatus} level={level} />}
       {recording && (
         <div className="mb-3 rounded-2xl border border-primary/25 bg-primary/5 p-3 text-right" dir="rtl">
           <div className="mb-1 text-[11px] font-bold text-primary">النص الخام المباشر</div>
@@ -1015,6 +1133,31 @@ function LiveStatusBar({ processing, transcript, lastCapture, level }: { process
   const Icon = state === "captured" ? (recent!.matched ? CheckCircle2 : recent!.complete ? Sparkles : AlertTriangle) : state === "transcribing" ? Loader2 : Radio;
   const barPct = state === "transcribing" ? undefined : Math.min(100, Math.round(level * 350));
   return <div className="mb-3 overflow-hidden rounded-2xl border border-border p-2.5"><div className="flex items-center gap-2"><span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${tone.pill}`}><Icon className={`h-3.5 w-3.5 ${state === "transcribing" ? "animate-spin" : ""}`} />{label}</span>{transcript && <span className="ml-auto truncate text-[10.5px] text-muted-foreground" dir="rtl">{transcript.slice(-80)}</span>}</div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/60">{state === "transcribing" ? <motion.div className={`h-full ${tone.bar}`} initial={{ x: "-40%", width: "40%" }} animate={{ x: "100%" }} transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }} /> : <motion.div className={`h-full ${tone.bar}`} animate={{ width: `${barPct}%` }} transition={{ duration: 0.15 }} />}</div></div>;
+}
+
+function VoiceDiagnostics({ status, level }: { status: VoiceStatus; level: number }) {
+  const tone = status.mode === "error"
+    ? "border-destructive/40 bg-destructive/10 text-destructive"
+    : status.mode === "recovering" || status.mode === "low"
+      ? "border-warning/40 bg-warning/10 text-warning"
+      : status.mode === "queued"
+        ? "border-primary/35 bg-primary/10 text-primary"
+        : "border-success/30 bg-success/10 text-success";
+  const pct = Math.min(100, Math.round(level * 350));
+  return (
+    <div className={`mb-3 rounded-2xl border p-2.5 ${tone}`}>
+      <div className="flex items-center gap-2 text-[11px] font-bold">
+        {status.mode === "recovering" || status.mode === "queued" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : status.mode === "error" || status.mode === "low" ? <AlertTriangle className="h-3.5 w-3.5" /> : <Radio className="h-3.5 w-3.5" />}
+        <span>{status.message}</span>
+        <span className="ml-auto tabular-nums text-muted-foreground">{pct}%</span>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-1.5 text-center text-[9.5px] text-muted-foreground">
+        <div className="rounded-lg bg-background/60 px-1.5 py-1">طابور <b className="text-foreground tabular-nums">{status.queue}</b></div>
+        <div className="rounded-lg bg-background/60 px-1.5 py-1">إعادة <b className="text-foreground tabular-nums">{status.restarts}</b></div>
+        <div className="rounded-lg bg-background/60 px-1.5 py-1">أخطاء <b className="text-foreground tabular-nums">{status.errors}</b></div>
+      </div>
+    </div>
+  );
 }
 
 function toMatched(p: PlateInfo): PlateEntry["matchedPlate"] {
