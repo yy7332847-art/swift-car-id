@@ -388,7 +388,10 @@ function RecordPage() {
     setTranscript((prev) => (prev + " " + text).trim().slice(-3000));
     const rolling = rollingSpeechBufferRef.current;
     if (rolling[rolling.length - 1]?.text !== text) rolling.push({ text, at: now });
-    while (rolling.length > 0 && (now - rolling[0].at > 4500 || rolling.length > 8)) rolling.shift();
+    // Wider window helps mobile Web Speech: interim results arrive fragmented,
+    // so keeping ~9s / 24 parts lets us re-parse the full utterance and recover
+    // the leading letter that the recognizer dropped on the second plate.
+    while (rolling.length > 0 && (now - rolling[0].at > 9000 || rolling.length > 24)) rolling.shift();
     const parseText = cleanRecognizedText(rolling.map((part) => part.text).join(" ")) || text;
     const plates = extractPlates(parseText);
     const parseMs = performance.now() - tParseStart;
@@ -396,8 +399,16 @@ function RecordPage() {
     const tMatchStart = performance.now();
     let captured = false;
 
-    for (const p of plates) {
-      if (!plateAppearsInText(p.letters, p.digits, parseText)) continue;
+    for (const rawP of plates) {
+      // Excel-driven auto-completion: when a partial capture uniquely matches
+      // one plate in the user's own list (letters/digits appearing as suffix
+      // or prefix of a real plate), promote it — this recovers mobile drops
+      // like "لل 2030" → "علل 2030" without inventing data.
+      const autoP = !rawP.complete ? completeFromUserList(rawP, platesIndex?.list ?? []) : null;
+      const p = autoP ?? rawP;
+      // Skip appearance guard when we auto-completed from the Excel list —
+      // the whole point is that the recognizer dropped part of the speech.
+      if (!autoP && !plateAppearsInText(p.letters, p.digits, parseText)) continue;
       const match = platesIndex?.map.get(p.normalized);
       const isMatched = !!match && p.complete && p.confidence >= 0.85;
       const closest = !isMatched ? findClosestPlate(p.normalized, platesIndex?.list ?? []) : null;
@@ -1370,6 +1381,56 @@ function findClosestPlate(input: string, list: PlateInfo[]): { raw: string; scor
     if (!best || score > best.score) best = { raw: p.plate_raw, score };
   }
   return best && best.score >= 0.55 ? best : null;
+}
+
+// When the recognizer dropped part of the plate (common on mobile: leading
+// letter missed on the 2nd/3rd plate in a row), see if the fragment we heard
+// uniquely identifies one plate in the user's own Excel list. Only promote
+// when there's exactly one candidate — otherwise we'd be inventing data.
+function completeFromUserList(p: DetectedPlate, list: PlateInfo[]): DetectedPlate | null {
+  if (list.length === 0) return null;
+  if (p.letters.length >= 3 && p.digits.length >= 4) return null;
+  // Need enough spoken signal to be confident (avoid matching "أ 4" against thousands).
+  if (p.letters.length + p.digits.length < 3) return null;
+  const splitRe = /^([\u0621-\u064A]{1,4})(\d{1,6})$/;
+  const suffixMatches: PlateInfo[] = [];
+  const prefixMatches: PlateInfo[] = [];
+  for (const plate of list) {
+    const m = plate.plate_normalized.match(splitRe);
+    if (!m) continue;
+    const [, ls, ds] = m;
+    if (ls.length < 3 || ds.length < 4) continue;
+    const lettersSuffix = p.letters.length === 0 || ls.endsWith(p.letters);
+    const digitsSuffix = p.digits.length === 0 || ds.endsWith(p.digits);
+    if (lettersSuffix && digitsSuffix) {
+      suffixMatches.push(plate);
+      if (suffixMatches.length > 1) break;
+      continue;
+    }
+    const lettersPrefix = p.letters.length === 0 || ls.startsWith(p.letters);
+    const digitsPrefix = p.digits.length === 0 || ds.startsWith(p.digits);
+    if (lettersPrefix && digitsPrefix) {
+      prefixMatches.push(plate);
+      if (prefixMatches.length > 2) continue;
+    }
+  }
+  const pool = suffixMatches.length === 1 ? suffixMatches : (prefixMatches.length === 1 ? prefixMatches : []);
+  if (pool.length !== 1) return null;
+  const chosen = pool[0];
+  const m = chosen.plate_normalized.match(splitRe);
+  if (!m) return null;
+  const [, letters, digits] = m;
+  return {
+    ...p,
+    letters,
+    digits,
+    normalized: letters + digits,
+    raw: `${letters.split("").join(" ")} ${digits}`.trim(),
+    complete: letters.length === 3 && digits.length === 4,
+    confidence: Math.min(0.95, (p.confidence ?? 0.6) + 0.25),
+    suspectPart: undefined,
+    correctionNote: `تصحيح تلقائي من قاعدة اللوحات (${chosen.plate_raw})`,
+  };
 }
 function GeoPreflightSheet({ loading, result, onCancel, onContinue, onRetry }: { loading: boolean; result: GeoPreflight | null; onCancel: () => void; onContinue: () => void; onRetry: () => void }) {
   const android = isAndroid();
