@@ -494,6 +494,7 @@ function RecordPage() {
     rec.onerror = (event: SpeechRecognitionErrorLike) => {
       instantSpeechActiveRef.current = false;
       voiceErrorCountRef.current++;
+      logDiag("speech_error", { error: event?.error ?? "unknown" });
       updateVoiceStatus({ mode: "recovering", message: event?.error === "no-speech" ? "لم يصل كلام واضح — أعيد فتح السماع" : "أعيد تشغيل السماع المباشر" });
       try { rec.abort(); } catch { /* noop */ }
       if (sessionIdRef.current) scheduleInstantSpeechRestart(450);
