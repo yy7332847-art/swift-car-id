@@ -529,6 +529,7 @@ function RecordPage() {
       speechRestartTimerRef.current = null;
       if (!sessionIdRef.current || speechRef.current) return;
       voiceRestartCountRef.current++;
+      logDiag("speech_restart", { restarts: voiceRestartCountRef.current });
       startInstantSpeech();
     }, delayMs);
   }
