@@ -306,7 +306,7 @@ function RecordPage() {
       stopGeoTracking();
       throw err;
     }
-  }, [updateVoiceStatus]);
+  }, [updateVoiceStatus, logDiag]);
 
   useEffect(() => {
     localStorage.removeItem(DRAFT_KEY);
