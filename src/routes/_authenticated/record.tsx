@@ -388,7 +388,10 @@ function RecordPage() {
     setTranscript((prev) => (prev + " " + text).trim().slice(-3000));
     const rolling = rollingSpeechBufferRef.current;
     if (rolling[rolling.length - 1]?.text !== text) rolling.push({ text, at: now });
-    while (rolling.length > 0 && (now - rolling[0].at > 4500 || rolling.length > 8)) rolling.shift();
+    // Wider window helps mobile Web Speech: interim results arrive fragmented,
+    // so keeping ~9s / 24 parts lets us re-parse the full utterance and recover
+    // the leading letter that the recognizer dropped on the second plate.
+    while (rolling.length > 0 && (now - rolling[0].at > 9000 || rolling.length > 24)) rolling.shift();
     const parseText = cleanRecognizedText(rolling.map((part) => part.text).join(" ")) || text;
     const plates = extractPlates(parseText);
     const parseMs = performance.now() - tParseStart;
@@ -396,8 +399,16 @@ function RecordPage() {
     const tMatchStart = performance.now();
     let captured = false;
 
-    for (const p of plates) {
-      if (!plateAppearsInText(p.letters, p.digits, parseText)) continue;
+    for (const rawP of plates) {
+      // Excel-driven auto-completion: when a partial capture uniquely matches
+      // one plate in the user's own list (letters/digits appearing as suffix
+      // or prefix of a real plate), promote it — this recovers mobile drops
+      // like "لل 2030" → "علل 2030" without inventing data.
+      const autoP = !rawP.complete ? completeFromUserList(rawP, platesIndex?.list ?? []) : null;
+      const p = autoP ?? rawP;
+      // Skip appearance guard when we auto-completed from the Excel list —
+      // the whole point is that the recognizer dropped part of the speech.
+      if (!autoP && !plateAppearsInText(p.letters, p.digits, parseText)) continue;
       const match = platesIndex?.map.get(p.normalized);
       const isMatched = !!match && p.complete && p.confidence >= 0.85;
       const closest = !isMatched ? findClosestPlate(p.normalized, platesIndex?.list ?? []) : null;
