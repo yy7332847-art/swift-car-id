@@ -7,6 +7,7 @@ export interface RecorderOptions {
   targetSampleRate?: number; // default 16000
   overlapSeconds?: number; // default 0.4
   onChunk: (wav: Blob, meta: RecorderChunkMeta) => void;
+  onChunkSkipped?: (meta: RecorderChunkMeta & { reason: "silent" }) => void;
   onLevel?: (level: number) => void;
 }
 
@@ -82,6 +83,16 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   const ac = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
   if (ac.state === "suspended") await ac.resume().catch(() => undefined);
   const source = ac.createMediaStreamSource(stream);
+  const highpass = ac.createBiquadFilter();
+  highpass.type = "highpass";
+  highpass.frequency.value = mobile ? 95 : 80;
+  highpass.Q.value = 0.7;
+  const compressor = ac.createDynamicsCompressor();
+  compressor.threshold.value = -48;
+  compressor.knee.value = 24;
+  compressor.ratio.value = 7;
+  compressor.attack.value = 0.004;
+  compressor.release.value = 0.18;
   const processor = ac.createScriptProcessor(mobile ? 4096 : 2048, 1, 1);
 
   let buffer: Float32Array[] = [];
@@ -121,19 +132,27 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
     let sum = 0;
     for (let i = 0; i < ds.length; i++) sum += ds[i] * ds[i];
     const rms = Math.sqrt(sum / ds.length);
-    const minRms = mobile ? 0.00055 : 0.001;
-    if (rms < minRms) return;
+    const meta = { rms, durationMs: (ds.length / targetRate) * 1000, sampleRate: targetRate };
+    const minRms = mobile ? 0.00018 : 0.00045;
+    if (rms < minRms) {
+      opts.onChunkSkipped?.({ ...meta, reason: "silent" });
+      return;
+    }
     const wav = encodeWav(ds, targetRate);
-    opts.onChunk(wav, { rms, durationMs: (ds.length / targetRate) * 1000, sampleRate: targetRate });
+    opts.onChunk(wav, meta);
   }
 
-  source.connect(processor);
+  source.connect(highpass);
+  highpass.connect(compressor);
+  compressor.connect(processor);
   processor.connect(ac.destination);
 
   return {
     stop: async () => {
       flush();
       processor.disconnect();
+      compressor.disconnect();
+      highpass.disconnect();
       source.disconnect();
       stream.getTracks().forEach((t) => t.stop());
       await ac.close();
