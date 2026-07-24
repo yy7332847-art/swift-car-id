@@ -775,6 +775,9 @@ function RecordPage() {
       lastSttOkAtRef.current = 0;
       voiceErrorCountRef.current = 0;
       voiceRestartCountRef.current = 0;
+      diagnosticsLogRef.current = [];
+      diagSessionStartRef.current = Date.now();
+      logDiag("session_started", { draftId: draftId.slice(0, 8), mobile: isMobileSpeechDevice(), userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "" });
       setVoiceStatus({ mode: "listening", message: "جاري فتح الميكروفون", queue: 0, restarts: 0, errors: 0, lastRms: 0 });
       setSessionId(draftId);
       setSavedSessionId(null);
