@@ -5,7 +5,7 @@ import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, Activity, Copy, GitMerge, HelpCircle } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, Activity, Copy, GitMerge, HelpCircle, FileDown } from "lucide-react";
 import { startRecorder, type RecorderChunkMeta, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
@@ -260,9 +260,72 @@ function RecordPage() {
   const rollingSpeechBufferRef = useRef<{ text: string; at: number }[]>([]);
   const ingestTextRef = useRef<(rawText: string, opts?: { source?: TextSource; partial?: boolean }) => IngestMetrics>((rawText) => ({ accepted: false, captured: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
 
+  type DiagEvent = { t: number; type: string; data?: Record<string, unknown> };
+  const diagnosticsLogRef = useRef<DiagEvent[]>([]);
+  const diagSessionStartRef = useRef<number>(Date.now());
+  const logDiag = useCallback((type: string, data?: Record<string, unknown>) => {
+    const buf = diagnosticsLogRef.current;
+    buf.push({ t: Date.now(), type, data });
+    if (buf.length > 500) buf.splice(0, buf.length - 500);
+  }, []);
+
   const updateVoiceStatus = useCallback((patch: Partial<VoiceStatus>) => {
     setVoiceStatus((prev) => ({ ...prev, ...patch, restarts: voiceRestartCountRef.current, errors: voiceErrorCountRef.current }));
   }, []);
+
+
+  const exportDiagnostics = useCallback(() => {
+    const now = Date.now();
+    const events = diagnosticsLogRef.current;
+    const counts: Record<string, number> = {};
+    for (const e of events) counts[e.type] = (counts[e.type] ?? 0) + 1;
+    const report = {
+      generatedAt: new Date(now).toISOString(),
+      appVersion: "plate-check",
+      session: {
+        id: sessionIdRef.current,
+        startedAt: diagSessionStartRef.current ? new Date(diagSessionStartRef.current).toISOString() : null,
+        durationSec: diagSessionStartRef.current ? Math.round((now - diagSessionStartRef.current) / 1000) : 0,
+        recording,
+      },
+      device: {
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        mobile: isMobileSpeechDevice(),
+        language: typeof navigator !== "undefined" ? navigator.language : "",
+        online: typeof navigator !== "undefined" ? navigator.onLine : true,
+      },
+      voiceStatus,
+      perfStats,
+      totals: {
+        entries: entriesRef.current.length,
+        pending: chunkQueueRef.current.length,
+        restarts: voiceRestartCountRef.current,
+        errors: voiceErrorCountRef.current,
+        sttBackoffMs: sttBackoffMsRef.current,
+        sttBackoffUntil: sttBackoffUntilRef.current ? new Date(sttBackoffUntilRef.current).toISOString() : null,
+        lastAudioChunkAt: lastAudioChunkAtRef.current ? new Date(lastAudioChunkAtRef.current).toISOString() : null,
+        lastSttOkAt: lastSttOkAtRef.current ? new Date(lastSttOkAtRef.current).toISOString() : null,
+      },
+      eventCounts: counts,
+      events: events.map((e) => ({ at: new Date(e.t).toISOString(), tOffsetMs: e.t - diagSessionStartRef.current, type: e.type, ...(e.data ? { data: e.data } : {}) })),
+    };
+    try {
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
+      a.href = url;
+      a.download = `plate-diagnostics-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      toast.success(`تم تصدير تقرير التشخيص (${events.length} حدث)`);
+    } catch (err) {
+      toast.error("تعذر تصدير التشخيص");
+      console.error(err);
+    }
+  }, [recording, voiceStatus, perfStats]);
 
   const applyEntries = useCallback((next: PlateEntry[]) => {
     entriesRef.current = next;
@@ -289,7 +352,7 @@ function RecordPage() {
         targetSampleRate: 16000,
         onLevel: setLevel,
         onChunk: (wav, meta) => processChunkRef.current(wav, meta),
-        onChunkSkipped: (meta) => updateVoiceStatus({ mode: "low", message: "الصوت منخفض — قرّب الميكروفون أو ارفع صوتك", lastRms: meta.rms }),
+        onChunkSkipped: (meta) => { logDiag("chunk_skipped_silent", { rms: meta.rms, durationMs: meta.durationMs }); updateVoiceStatus({ mode: "low", message: "الصوت منخفض — قرّب الميكروفون أو ارفع صوتك", lastRms: meta.rms }); },
       });
     } catch (err) {
       setRecording(false);
@@ -297,7 +360,7 @@ function RecordPage() {
       stopGeoTracking();
       throw err;
     }
-  }, [updateVoiceStatus]);
+  }, [updateVoiceStatus, logDiag]);
 
   useEffect(() => {
     localStorage.removeItem(DRAFT_KEY);
@@ -485,6 +548,7 @@ function RecordPage() {
     rec.onerror = (event: SpeechRecognitionErrorLike) => {
       instantSpeechActiveRef.current = false;
       voiceErrorCountRef.current++;
+      logDiag("speech_error", { error: event?.error ?? "unknown" });
       updateVoiceStatus({ mode: "recovering", message: event?.error === "no-speech" ? "لم يصل كلام واضح — أعيد فتح السماع" : "أعيد تشغيل السماع المباشر" });
       try { rec.abort(); } catch { /* noop */ }
       if (sessionIdRef.current) scheduleInstantSpeechRestart(450);
@@ -519,6 +583,7 @@ function RecordPage() {
       speechRestartTimerRef.current = null;
       if (!sessionIdRef.current || speechRef.current) return;
       voiceRestartCountRef.current++;
+      logDiag("speech_restart", { restarts: voiceRestartCountRef.current });
       startInstantSpeech();
     }, delayMs);
   }
@@ -533,6 +598,7 @@ function RecordPage() {
     try {
       const backoffWait = Math.max(0, sttBackoffUntilRef.current - Date.now());
       if (backoffWait > 0) {
+        logDiag("stt_backoff_wait", { waitMs: Math.min(backoffWait, 8000), backoffMs: sttBackoffMsRef.current });
         updateVoiceStatus({ mode: "queued", message: "أخفف ضغط التعرف الصوتي ثم أكمل تلقائياً", queue: chunkQueueRef.current.length });
         await new Promise((resolve) => window.setTimeout(resolve, Math.min(backoffWait, 8000)));
       }
@@ -550,12 +616,14 @@ function RecordPage() {
       window.clearTimeout(timeout);
       if (!res.ok) {
         voiceErrorCountRef.current++;
+        const bodyText = await res.text().catch(() => "");
         if (res.status === 429) {
           sttBackoffMsRef.current = sttBackoffMsRef.current ? Math.min(sttBackoffMsRef.current * 2, 30000) : 6000;
           sttBackoffUntilRef.current = Date.now() + sttBackoffMsRef.current;
         }
+        logDiag("stt_error", { status: res.status, statusText: res.statusText, backoffMs: sttBackoffMsRef.current, chunkMs: meta?.durationMs, rms: meta?.rms, body: bodyText.slice(0, 400) });
         updateVoiceStatus({ mode: "error", message: res.status === 429 ? "ضغط عالي على التعرف — أبطّئ الطلبات تلقائياً بدون إيقاف الجلسة" : "تعذر تحليل مقطع صوتي — التسجيل مستمر" });
-        console.error("STT", res.status, await res.text().catch(() => ""));
+        console.error("STT", res.status, bodyText);
         return;
       }
       sttBackoffMsRef.current = 0;
@@ -582,10 +650,13 @@ function RecordPage() {
       matchMs = metrics.matchMs;
       textLen = metrics.textLen;
       lastSttOkAtRef.current = Date.now();
+      logDiag("stt_ok", { sttMs: Math.round(sttMs), chunkMs: meta?.durationMs, rms: meta?.rms, textLen, captured: metrics.captured, streamed: contentType.includes("text/event-stream") });
       updateVoiceStatus({ mode: metrics.captured ? "listening" : "queued", message: metrics.captured ? "تم التقاط لوحة — السماع مستمر" : "أسمع الصوت ولم أجد لوحة مكتملة بعد", queue: chunkQueueRef.current.length });
     } catch (err) {
       voiceErrorCountRef.current++;
-      updateVoiceStatus({ mode: "recovering", message: err instanceof DOMException && err.name === "AbortError" ? "تحليل الصوت تأخر — تجاوزت المقطع وأكملت" : "حدث انقطاع مؤقت — التسجيل مستمر" });
+      const aborted = err instanceof DOMException && err.name === "AbortError";
+      logDiag(aborted ? "stt_timeout" : "stt_exception", { message: err instanceof Error ? err.message : String(err), chunkMs: meta?.durationMs, rms: meta?.rms });
+      updateVoiceStatus({ mode: "recovering", message: aborted ? "تحليل الصوت تأخر — تجاوزت المقطع وأكملت" : "حدث انقطاع مؤقت — التسجيل مستمر" });
       console.error(err);
     } finally {
       const totalMs = performance.now() - t0;
@@ -596,7 +667,7 @@ function RecordPage() {
       setPerfStats(computePerfStats(buf, chunkQueueRef.current.length));
       if (import.meta.env.DEV) console.debug("[perf]", { gap: `${sample.chunkGapMs.toFixed(0)}ms`, stt: `${sttMs.toFixed(0)}ms`, parse: `${parseMs.toFixed(0)}ms`, total: `${totalMs.toFixed(0)}ms`, textLen, queue: chunkQueueRef.current.length });
     }
-  }, [ingestRecognizedText, updateVoiceStatus]);
+  }, [ingestRecognizedText, updateVoiceStatus, logDiag]);
 
   const drainAudioQueue = useCallback(async () => {
     if (processingLoopActiveRef.current) return;
@@ -638,14 +709,16 @@ function RecordPage() {
       if (recorderRef.current && lastAudioChunkAtRef.current && now - lastAudioChunkAtRef.current > 6500 && !recorderRestartingRef.current) {
         recorderRestartingRef.current = true;
         voiceRestartCountRef.current++;
+        logDiag("recorder_restart", { silenceMs: now - lastAudioChunkAtRef.current, restarts: voiceRestartCountRef.current });
         updateVoiceStatus({ mode: "recovering", message: "لم يصل صوت جديد — أعيد فتح الميكروفون تلقائياً" });
         void (async () => {
           try {
             await recorderRef.current?.stop();
             recorderRef.current = null;
             await startCapture();
-          } catch {
+          } catch (e) {
             voiceErrorCountRef.current++;
+            logDiag("recorder_restart_failed", { message: e instanceof Error ? e.message : String(e) });
             updateVoiceStatus({ mode: "error", message: "تعذر إعادة فتح الميكروفون — اضغط إيقاف ثم ابدأ" });
           } finally {
             recorderRestartingRef.current = false;
@@ -656,7 +729,7 @@ function RecordPage() {
       }
     }, 2500);
     return () => window.clearInterval(iv);
-  }, [recording, startCapture, updateVoiceStatus]);
+  }, [recording, startCapture, updateVoiceStatus, logDiag]);
 
   async function ensureGeoPermission(): Promise<PermissionState> {
     try {
@@ -756,6 +829,9 @@ function RecordPage() {
       lastSttOkAtRef.current = 0;
       voiceErrorCountRef.current = 0;
       voiceRestartCountRef.current = 0;
+      diagnosticsLogRef.current = [];
+      diagSessionStartRef.current = Date.now();
+      logDiag("session_started", { draftId: draftId.slice(0, 8), mobile: isMobileSpeechDevice(), userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "" });
       setVoiceStatus({ mode: "listening", message: "جاري فتح الميكروفون", queue: 0, restarts: 0, errors: 0, lastRms: 0 });
       setSessionId(draftId);
       setSavedSessionId(null);
@@ -964,7 +1040,7 @@ function RecordPage() {
       </div>
 
       {recording && <LiveStatusBar processing={processing} transcript={liveText || transcript} lastCapture={lastCapture} level={level} />}
-      {recording && <VoiceDiagnostics status={voiceStatus} level={level} />}
+      {recording && <VoiceDiagnostics status={voiceStatus} level={level} onExport={exportDiagnostics} />}
       {recording && (
         <div className="mb-3 rounded-2xl border border-primary/25 bg-primary/5 p-3 text-right" dir="rtl">
           <div className="mb-1 text-[11px] font-bold text-primary">النص الخام المباشر</div>
@@ -1153,7 +1229,7 @@ function LiveStatusBar({ processing, transcript, lastCapture, level }: { process
   return <div className="mb-3 overflow-hidden rounded-2xl border border-border p-2.5"><div className="flex items-center gap-2"><span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${tone.pill}`}><Icon className={`h-3.5 w-3.5 ${state === "transcribing" ? "animate-spin" : ""}`} />{label}</span>{transcript && <span className="ml-auto truncate text-[10.5px] text-muted-foreground" dir="rtl">{transcript.slice(-80)}</span>}</div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/60">{state === "transcribing" ? <motion.div className={`h-full ${tone.bar}`} initial={{ x: "-40%", width: "40%" }} animate={{ x: "100%" }} transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }} /> : <motion.div className={`h-full ${tone.bar}`} animate={{ width: `${barPct}%` }} transition={{ duration: 0.15 }} />}</div></div>;
 }
 
-function VoiceDiagnostics({ status, level }: { status: VoiceStatus; level: number }) {
+function VoiceDiagnostics({ status, level, onExport }: { status: VoiceStatus; level: number; onExport?: () => void }) {
   const tone = status.mode === "error"
     ? "border-destructive/40 bg-destructive/10 text-destructive"
     : status.mode === "recovering" || status.mode === "low"
@@ -1174,6 +1250,15 @@ function VoiceDiagnostics({ status, level }: { status: VoiceStatus; level: numbe
         <div className="rounded-lg bg-background/60 px-1.5 py-1">إعادة <b className="text-foreground tabular-nums">{status.restarts}</b></div>
         <div className="rounded-lg bg-background/60 px-1.5 py-1">أخطاء <b className="text-foreground tabular-nums">{status.errors}</b></div>
       </div>
+      {onExport && (
+        <button
+          type="button"
+          onClick={onExport}
+          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-current/30 bg-background/40 px-2 py-1.5 text-[10.5px] font-bold text-foreground hover:bg-background/70"
+        >
+          <FileDown className="h-3.5 w-3.5" /> تصدير تقرير التشخيص
+        </button>
+      )}
     </div>
   );
 }
