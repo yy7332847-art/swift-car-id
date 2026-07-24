@@ -74,9 +74,9 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       channelCount: { ideal: 1 },
-      echoCancellation: mobile ? false : true,
-      noiseSuppression: mobile ? false : true,
-      autoGainControl: true,
+      echoCancellation: { ideal: true },
+      noiseSuppression: { ideal: true },
+      autoGainControl: { ideal: true },
       sampleRate: { ideal: 48000 },
     },
   });
@@ -94,6 +94,8 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   compressor.attack.value = 0.004;
   compressor.release.value = 0.18;
   const processor = ac.createScriptProcessor(mobile ? 4096 : 2048, 1, 1);
+  const monitor = ac.createGain();
+  monitor.gain.value = 0;
 
   let buffer: Float32Array[] = [];
   let lastFlush = performance.now();
@@ -145,12 +147,14 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   source.connect(highpass);
   highpass.connect(compressor);
   compressor.connect(processor);
-  processor.connect(ac.destination);
+  processor.connect(monitor);
+  monitor.connect(ac.destination);
 
   return {
     stop: async () => {
       flush();
       processor.disconnect();
+      monitor.disconnect();
       compressor.disconnect();
       highpass.disconnect();
       source.disconnect();

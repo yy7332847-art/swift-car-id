@@ -253,8 +253,11 @@ function RecordPage() {
   const lastIncompleteToneAtRef = useRef(0);
   const lastAudioChunkAtRef = useRef(0);
   const lastSttOkAtRef = useRef(0);
+  const sttBackoffUntilRef = useRef(0);
+  const sttBackoffMsRef = useRef(0);
   const voiceRestartCountRef = useRef(0);
   const voiceErrorCountRef = useRef(0);
+  const rollingSpeechBufferRef = useRef<{ text: string; at: number }[]>([]);
   const ingestTextRef = useRef<(rawText: string, opts?: { source?: TextSource; partial?: boolean }) => IngestMetrics>((rawText) => ({ accepted: false, captured: false, parseMs: 0, matchMs: 0, textLen: rawText.length }));
 
   const updateVoiceStatus = useCallback((patch: Partial<VoiceStatus>) => {
@@ -313,21 +316,25 @@ function RecordPage() {
     const tParseStart = performance.now();
     if (!text || text.length < 2) return { accepted: false, captured: false, parseMs: 0, matchMs: 0, textLen: text.length };
     if (source === "instant" || isMobileSpeechDevice() || !instantSpeechActiveRef.current) setLiveText(text);
+    const now = Date.now();
     const dedupeKey = text.replace(/[\s،.,؟?!:؛;\-_/\\|()[\]{}]/g, "");
     const lastAt = recentTextRef.current.get(dedupeKey);
-    const now = Date.now();
     if (lastAt && now - lastAt < 650) return { accepted: false, captured: false, parseMs: 0, matchMs: 0, textLen: text.length };
     recentTextRef.current.set(dedupeKey, now);
     for (const [key, at] of recentTextRef.current) if (now - at > 12000) recentTextRef.current.delete(key);
     setTranscript((prev) => (prev + " " + text).trim().slice(-3000));
-    const plates = extractPlates(text);
+    const rolling = rollingSpeechBufferRef.current;
+    if (rolling[rolling.length - 1]?.text !== text) rolling.push({ text, at: now });
+    while (rolling.length > 0 && (now - rolling[0].at > 4500 || rolling.length > 8)) rolling.shift();
+    const parseText = cleanRecognizedText(rolling.map((part) => part.text).join(" ")) || text;
+    const plates = extractPlates(parseText);
     const parseMs = performance.now() - tParseStart;
     if (plates.length === 0) return { accepted: true, captured: false, parseMs, matchMs: 0, textLen: text.length };
     const tMatchStart = performance.now();
     let captured = false;
 
     for (const p of plates) {
-      if (!plateAppearsInText(p.letters, p.digits, text)) continue;
+      if (!plateAppearsInText(p.letters, p.digits, parseText)) continue;
       const match = platesIndex?.map.get(p.normalized);
       const isMatched = !!match && p.complete && p.confidence >= 0.85;
       const closest = !isMatched ? findClosestPlate(p.normalized, platesIndex?.list ?? []) : null;
@@ -342,7 +349,7 @@ function RecordPage() {
         applyEntries(entriesRef.current.map((e) => e.id === existing.entryId ? {
           ...e,
           ...enriched,
-          spokenText: `${e.spokenText} ${text}`.trim().slice(-700),
+          spokenText: `${e.spokenText} ${parseText}`.trim().slice(-700),
           matchedPlateId: isMatched && match ? match.id : null,
           closestPlate: closest,
           matchedPlate: isMatched && match ? toMatched(match) : undefined,
@@ -403,7 +410,7 @@ function RecordPage() {
         ...enriched,
         id: crypto.randomUUID(),
         spokenAt: now,
-        spokenText: text,
+        spokenText: parseText,
         matchedPlateId: isMatched && match ? match.id : null,
         closestPlate: closest,
         latitude: pos?.lat ?? null,
@@ -524,6 +531,11 @@ function RecordPage() {
     lastChunkAtRef.current = t0;
     let sttMs = 0, parseMs = 0, matchMs = 0, textLen = 0;
     try {
+      const backoffWait = Math.max(0, sttBackoffUntilRef.current - Date.now());
+      if (backoffWait > 0) {
+        updateVoiceStatus({ mode: "queued", message: "أخفف ضغط التعرف الصوتي ثم أكمل تلقائياً", queue: chunkQueueRef.current.length });
+        await new Promise((resolve) => window.setTimeout(resolve, Math.min(backoffWait, 8000)));
+      }
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       if (!token || !sessionIdRef.current) return;
@@ -538,10 +550,16 @@ function RecordPage() {
       window.clearTimeout(timeout);
       if (!res.ok) {
         voiceErrorCountRef.current++;
-        updateVoiceStatus({ mode: "error", message: res.status === 429 ? "ضغط عالي على التعرف — سأبطّئ الطلبات تلقائياً" : "تعذر تحليل مقطع صوتي — التسجيل مستمر" });
+        if (res.status === 429) {
+          sttBackoffMsRef.current = sttBackoffMsRef.current ? Math.min(sttBackoffMsRef.current * 2, 30000) : 6000;
+          sttBackoffUntilRef.current = Date.now() + sttBackoffMsRef.current;
+        }
+        updateVoiceStatus({ mode: "error", message: res.status === 429 ? "ضغط عالي على التعرف — أبطّئ الطلبات تلقائياً بدون إيقاف الجلسة" : "تعذر تحليل مقطع صوتي — التسجيل مستمر" });
         console.error("STT", res.status, await res.text().catch(() => ""));
         return;
       }
+      sttBackoffMsRef.current = 0;
+      sttBackoffUntilRef.current = 0;
       sttMs = performance.now() - tStt;
       // Browser speech recognition is the instant, user-visible source of truth.
       // On mobile, Web Speech is often unavailable or unreliable; server STT is the reliable path.
