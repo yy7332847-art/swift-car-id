@@ -60,13 +60,14 @@ const DRAFT_KEY = "platecheck.active-recording-draft.v4";
 
 type SpeechRecognitionResultLike = { isFinal: boolean; 0: { transcript: string } };
 type SpeechRecognitionEventLike = { resultIndex: number; results: SpeechRecognitionResultLike[] };
+type SpeechRecognitionErrorLike = { error?: string };
 type BrowserSpeechRecognition = {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
   maxAlternatives: number;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorLike) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
@@ -474,7 +475,7 @@ function RecordPage() {
       }
       if (finalText) ingestTextRef.current(finalText, { source: "instant" });
     };
-    rec.onerror = (event?: { error?: string }) => {
+    rec.onerror = (event: SpeechRecognitionErrorLike) => {
       instantSpeechActiveRef.current = false;
       voiceErrorCountRef.current++;
       updateVoiceStatus({ mode: "recovering", message: event?.error === "no-speech" ? "لم يصل كلام واضح — أعيد فتح السماع" : "أعيد تشغيل السماع المباشر" });
@@ -945,6 +946,7 @@ function RecordPage() {
       </div>
 
       {recording && <LiveStatusBar processing={processing} transcript={liveText || transcript} lastCapture={lastCapture} level={level} />}
+      {recording && <VoiceDiagnostics status={voiceStatus} level={level} />}
       {recording && (
         <div className="mb-3 rounded-2xl border border-primary/25 bg-primary/5 p-3 text-right" dir="rtl">
           <div className="mb-1 text-[11px] font-bold text-primary">النص الخام المباشر</div>
@@ -1131,6 +1133,31 @@ function LiveStatusBar({ processing, transcript, lastCapture, level }: { process
   const Icon = state === "captured" ? (recent!.matched ? CheckCircle2 : recent!.complete ? Sparkles : AlertTriangle) : state === "transcribing" ? Loader2 : Radio;
   const barPct = state === "transcribing" ? undefined : Math.min(100, Math.round(level * 350));
   return <div className="mb-3 overflow-hidden rounded-2xl border border-border p-2.5"><div className="flex items-center gap-2"><span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${tone.pill}`}><Icon className={`h-3.5 w-3.5 ${state === "transcribing" ? "animate-spin" : ""}`} />{label}</span>{transcript && <span className="ml-auto truncate text-[10.5px] text-muted-foreground" dir="rtl">{transcript.slice(-80)}</span>}</div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/60">{state === "transcribing" ? <motion.div className={`h-full ${tone.bar}`} initial={{ x: "-40%", width: "40%" }} animate={{ x: "100%" }} transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }} /> : <motion.div className={`h-full ${tone.bar}`} animate={{ width: `${barPct}%` }} transition={{ duration: 0.15 }} />}</div></div>;
+}
+
+function VoiceDiagnostics({ status, level }: { status: VoiceStatus; level: number }) {
+  const tone = status.mode === "error"
+    ? "border-destructive/40 bg-destructive/10 text-destructive"
+    : status.mode === "recovering" || status.mode === "low"
+      ? "border-warning/40 bg-warning/10 text-warning"
+      : status.mode === "queued"
+        ? "border-primary/35 bg-primary/10 text-primary"
+        : "border-success/30 bg-success/10 text-success";
+  const pct = Math.min(100, Math.round(level * 350));
+  return (
+    <div className={`mb-3 rounded-2xl border p-2.5 ${tone}`}>
+      <div className="flex items-center gap-2 text-[11px] font-bold">
+        {status.mode === "recovering" || status.mode === "queued" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : status.mode === "error" || status.mode === "low" ? <AlertTriangle className="h-3.5 w-3.5" /> : <Radio className="h-3.5 w-3.5" />}
+        <span>{status.message}</span>
+        <span className="ml-auto tabular-nums text-muted-foreground">{pct}%</span>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-1.5 text-center text-[9.5px] text-muted-foreground">
+        <div className="rounded-lg bg-background/60 px-1.5 py-1">طابور <b className="text-foreground tabular-nums">{status.queue}</b></div>
+        <div className="rounded-lg bg-background/60 px-1.5 py-1">إعادة <b className="text-foreground tabular-nums">{status.restarts}</b></div>
+        <div className="rounded-lg bg-background/60 px-1.5 py-1">أخطاء <b className="text-foreground tabular-nums">{status.errors}</b></div>
+      </div>
+    </div>
+  );
 }
 
 function toMatched(p: PlateInfo): PlateEntry["matchedPlate"] {
