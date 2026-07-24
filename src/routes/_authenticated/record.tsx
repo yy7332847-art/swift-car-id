@@ -5,7 +5,7 @@ import { getMySubscription, isAdmin } from "@/lib/subscription-check";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, Activity, Copy, GitMerge, HelpCircle } from "lucide-react";
+import { Mic, Square, CheckCircle2, AlertTriangle, Loader2, Info, Car, Settings2, X, Radio, Sparkles, MapPin, MapPinOff, Activity, Copy, GitMerge, HelpCircle, FileDown } from "lucide-react";
 import { startRecorder, type RecorderChunkMeta, type RecorderHandle } from "@/lib/audio-recorder";
 import { extractPlates, plateAppearsInText, type DetectedPlate } from "@/lib/plate-utils";
 import { TrackingMap } from "@/components/TrackingMap";
