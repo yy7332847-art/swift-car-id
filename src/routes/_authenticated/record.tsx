@@ -655,14 +655,16 @@ function RecordPage() {
       if (recorderRef.current && lastAudioChunkAtRef.current && now - lastAudioChunkAtRef.current > 6500 && !recorderRestartingRef.current) {
         recorderRestartingRef.current = true;
         voiceRestartCountRef.current++;
+        logDiag("recorder_restart", { silenceMs: now - lastAudioChunkAtRef.current, restarts: voiceRestartCountRef.current });
         updateVoiceStatus({ mode: "recovering", message: "لم يصل صوت جديد — أعيد فتح الميكروفون تلقائياً" });
         void (async () => {
           try {
             await recorderRef.current?.stop();
             recorderRef.current = null;
             await startCapture();
-          } catch {
+          } catch (e) {
             voiceErrorCountRef.current++;
+            logDiag("recorder_restart_failed", { message: e instanceof Error ? e.message : String(e) });
             updateVoiceStatus({ mode: "error", message: "تعذر إعادة فتح الميكروفون — اضغط إيقاف ثم ابدأ" });
           } finally {
             recorderRestartingRef.current = false;
