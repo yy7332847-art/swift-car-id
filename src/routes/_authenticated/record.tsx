@@ -298,7 +298,7 @@ function RecordPage() {
         targetSampleRate: 16000,
         onLevel: setLevel,
         onChunk: (wav, meta) => processChunkRef.current(wav, meta),
-        onChunkSkipped: (meta) => updateVoiceStatus({ mode: "low", message: "الصوت منخفض — قرّب الميكروفون أو ارفع صوتك", lastRms: meta.rms }),
+        onChunkSkipped: (meta) => { logDiag("chunk_skipped_silent", { rms: meta.rms, durationMs: meta.durationMs }); updateVoiceStatus({ mode: "low", message: "الصوت منخفض — قرّب الميكروفون أو ارفع صوتك", lastRms: meta.rms }); },
       });
     } catch (err) {
       setRecording(false);
