@@ -542,6 +542,7 @@ function RecordPage() {
     try {
       const backoffWait = Math.max(0, sttBackoffUntilRef.current - Date.now());
       if (backoffWait > 0) {
+        logDiag("stt_backoff_wait", { waitMs: Math.min(backoffWait, 8000), backoffMs: sttBackoffMsRef.current });
         updateVoiceStatus({ mode: "queued", message: "أخفف ضغط التعرف الصوتي ثم أكمل تلقائياً", queue: chunkQueueRef.current.length });
         await new Promise((resolve) => window.setTimeout(resolve, Math.min(backoffWait, 8000)));
       }
@@ -559,12 +560,14 @@ function RecordPage() {
       window.clearTimeout(timeout);
       if (!res.ok) {
         voiceErrorCountRef.current++;
+        const bodyText = await res.text().catch(() => "");
         if (res.status === 429) {
           sttBackoffMsRef.current = sttBackoffMsRef.current ? Math.min(sttBackoffMsRef.current * 2, 30000) : 6000;
           sttBackoffUntilRef.current = Date.now() + sttBackoffMsRef.current;
         }
+        logDiag("stt_error", { status: res.status, statusText: res.statusText, backoffMs: sttBackoffMsRef.current, chunkMs: meta?.durationMs, rms: meta?.rms, body: bodyText.slice(0, 400) });
         updateVoiceStatus({ mode: "error", message: res.status === 429 ? "ضغط عالي على التعرف — أبطّئ الطلبات تلقائياً بدون إيقاف الجلسة" : "تعذر تحليل مقطع صوتي — التسجيل مستمر" });
-        console.error("STT", res.status, await res.text().catch(() => ""));
+        console.error("STT", res.status, bodyText);
         return;
       }
       sttBackoffMsRef.current = 0;
@@ -591,10 +594,13 @@ function RecordPage() {
       matchMs = metrics.matchMs;
       textLen = metrics.textLen;
       lastSttOkAtRef.current = Date.now();
+      logDiag("stt_ok", { sttMs: Math.round(sttMs), chunkMs: meta?.durationMs, rms: meta?.rms, textLen, captured: metrics.captured, streamed: contentType.includes("text/event-stream") });
       updateVoiceStatus({ mode: metrics.captured ? "listening" : "queued", message: metrics.captured ? "تم التقاط لوحة — السماع مستمر" : "أسمع الصوت ولم أجد لوحة مكتملة بعد", queue: chunkQueueRef.current.length });
     } catch (err) {
       voiceErrorCountRef.current++;
-      updateVoiceStatus({ mode: "recovering", message: err instanceof DOMException && err.name === "AbortError" ? "تحليل الصوت تأخر — تجاوزت المقطع وأكملت" : "حدث انقطاع مؤقت — التسجيل مستمر" });
+      const aborted = err instanceof DOMException && err.name === "AbortError";
+      logDiag(aborted ? "stt_timeout" : "stt_exception", { message: err instanceof Error ? err.message : String(err), chunkMs: meta?.durationMs, rms: meta?.rms });
+      updateVoiceStatus({ mode: "recovering", message: aborted ? "تحليل الصوت تأخر — تجاوزت المقطع وأكملت" : "حدث انقطاع مؤقت — التسجيل مستمر" });
       console.error(err);
     } finally {
       const totalMs = performance.now() - t0;
@@ -605,7 +611,7 @@ function RecordPage() {
       setPerfStats(computePerfStats(buf, chunkQueueRef.current.length));
       if (import.meta.env.DEV) console.debug("[perf]", { gap: `${sample.chunkGapMs.toFixed(0)}ms`, stt: `${sttMs.toFixed(0)}ms`, parse: `${parseMs.toFixed(0)}ms`, total: `${totalMs.toFixed(0)}ms`, textLen, queue: chunkQueueRef.current.length });
     }
-  }, [ingestRecognizedText, updateVoiceStatus]);
+  }, [ingestRecognizedText, updateVoiceStatus, logDiag]);
 
   const drainAudioQueue = useCallback(async () => {
     if (processingLoopActiveRef.current) return;
