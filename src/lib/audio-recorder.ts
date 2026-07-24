@@ -148,7 +148,7 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
     for (let i = 0; i < ds.length; i++) sum += ds[i] * ds[i];
     const rms = Math.sqrt(sum / ds.length);
     const meta = { rms, durationMs: (ds.length / targetRate) * 1000, sampleRate: targetRate };
-    const minRms = mobile ? 0.00018 : 0.00045;
+    const minRms = mobile ? 0.00010 : 0.00035;
     if (rms < minRms) {
       opts.onChunkSkipped?.({ ...meta, reason: "silent" });
       return;
@@ -158,7 +158,8 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   }
 
   source.connect(highpass);
-  highpass.connect(compressor);
+  highpass.connect(preGain);
+  preGain.connect(compressor);
   compressor.connect(processor);
   processor.connect(monitor);
   monitor.connect(ac.destination);
@@ -166,9 +167,12 @@ export async function startRecorder(opts: RecorderOptions): Promise<RecorderHand
   return {
     stop: async () => {
       flush();
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+      if (typeof window !== "undefined") window.removeEventListener("focus", resumeIfNeeded);
       processor.disconnect();
       monitor.disconnect();
       compressor.disconnect();
+      preGain.disconnect();
       highpass.disconnect();
       source.disconnect();
       stream.getTracks().forEach((t) => t.stop());
