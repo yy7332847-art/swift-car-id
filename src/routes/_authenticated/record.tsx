@@ -1040,7 +1040,7 @@ function RecordPage() {
       </div>
 
       {recording && <LiveStatusBar processing={processing} transcript={liveText || transcript} lastCapture={lastCapture} level={level} />}
-      {recording && <VoiceDiagnostics status={voiceStatus} level={level} />}
+      {recording && <VoiceDiagnostics status={voiceStatus} level={level} onExport={exportDiagnostics} />}
       {recording && (
         <div className="mb-3 rounded-2xl border border-primary/25 bg-primary/5 p-3 text-right" dir="rtl">
           <div className="mb-1 text-[11px] font-bold text-primary">النص الخام المباشر</div>
