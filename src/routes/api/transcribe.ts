@@ -63,14 +63,15 @@ export const Route = createFileRoute("/api/transcribe")({
             headers: { Authorization: `Bearer ${key}` },
             body: upstream,
           });
-          const bodyText = await res.text();
           if (!res.ok) {
+            const bodyText = await res.text().catch(() => "");
             console.error("STT gateway error", res.status, bodyText);
             return new Response(JSON.stringify({ error: bodyText || "Transcription failed", status: res.status }), { status: res.status });
           }
           if (stream) {
             return new Response(res.body, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store" } });
           }
+          const bodyText = await res.text();
           return new Response(bodyText, { headers: { "Content-Type": "application/json" } });
         } catch (err) {
           console.error(err);
