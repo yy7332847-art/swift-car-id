@@ -78,7 +78,7 @@ export function TrackingMap({ path, markers = [], follow = false, showCar = fals
       leafletRef.current = Ll;
       const initialPoint = path[0] ?? markers[0];
       const initial: [number, number] = initialPoint ? [initialPoint.lat, initialPoint.lng] : [24.7136, 46.6753];
-      const map = Ll.map(containerRef.current, { zoomControl: false, attributionControl: false, preferCanvas: true }).setView(initial, 16);
+      const map = Ll.map(containerRef.current, { zoomControl: false, attributionControl: false }).setView(initial, 16);
       Ll.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { maxZoom: 19, subdomains: "abcd" }).addTo(map);
       Ll.control.zoom({ position: "topleft" }).addTo(map);
       polyRef.current = Ll.polyline([], { color: pathColor, weight: 6, opacity: 0.9, lineJoin: "round", lineCap: "round" }).addTo(map);

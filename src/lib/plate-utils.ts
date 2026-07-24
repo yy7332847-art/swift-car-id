@@ -176,8 +176,7 @@ function pushFound(found: DetectedPlate[], plate: Omit<DetectedPlate, "raw" | "n
   const letters = plate.letters.slice(0, 3), digits = plate.digits.slice(0, 4);
   // Saudi plates need 3 official letters. Do not turn normal Arabic words
   // like "انا" or "السلام" into plate letters.
-  if (letters.length < 2 || digits.length < 1) return;
-  if (letters.length < 3 && digits.length < 2) return;
+  if (letters.length < 1 || digits.length < 1) return;
   if (!letters.split("").every((c) => PLATE_LETTERS.has(c))) return;
   const normalized = normalizePlate(letters + digits);
   if (found.some((f) => f.normalized === normalized)) return;
@@ -204,7 +203,7 @@ export function extractPlates(text: string): DetectedPlate[] {
       }
       break;
     }
-    if (letters.length >= 2) {
+    if (letters.length >= 1) {
       while (j < words.length && NUMBER_PREFIX_NOISE.has(stripWa(words[j]))) j++;
       const parsed = parseArabicNumberRun(words, j);
       if (parsed.value && parsed.value.length >= 1) {
