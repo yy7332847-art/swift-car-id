@@ -273,11 +273,6 @@ function RecordPage() {
     setVoiceStatus((prev) => ({ ...prev, ...patch, restarts: voiceRestartCountRef.current, errors: voiceErrorCountRef.current }));
   }, []);
 
-  const logDiag = useCallback((type: string, data?: Record<string, unknown>) => {
-    const buf = diagnosticsLogRef.current;
-    buf.push({ t: Date.now(), type, data });
-    if (buf.length > 500) buf.splice(0, buf.length - 500);
-  }, []);
 
   const exportDiagnostics = useCallback(() => {
     const now = Date.now();
