@@ -340,6 +340,36 @@ function RecordPage() {
 
   useEffect(() => { pathRef.current = path; }, [path]);
 
+  // Wake Lock: keep the screen on while recording so the AudioContext and
+  // SpeechRecognition are not suspended by the OS after a few seconds.
+  useEffect(() => {
+    if (!recording) return;
+    type WakeLockSentinelLike = { release: () => Promise<void> };
+    type WakeLockAPI = { request: (type: "screen") => Promise<WakeLockSentinelLike> };
+    const nav = navigator as Navigator & { wakeLock?: WakeLockAPI };
+    if (!nav.wakeLock) return;
+    let sentinel: WakeLockSentinelLike | null = null;
+    let cancelled = false;
+    const acquire = async () => {
+      try {
+        const s = await nav.wakeLock!.request("screen");
+        if (cancelled) { void s.release().catch(() => undefined); return; }
+        sentinel = s;
+        logDiag("wake_lock_acquired");
+      } catch (e) {
+        logDiag("wake_lock_failed", { message: e instanceof Error ? e.message : String(e) });
+      }
+    };
+    void acquire();
+    const onVis = () => { if (document.visibilityState === "visible" && !sentinel) void acquire(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
+      if (sentinel) { void sentinel.release().catch(() => undefined); sentinel = null; }
+    };
+  }, [recording, logDiag]);
+
   const startCapture = useCallback(async () => {
     if (recorderRef.current) return;
     setRecording(true);
@@ -629,8 +659,12 @@ function RecordPage() {
         voiceErrorCountRef.current++;
         const bodyText = await res.text().catch(() => "");
         if (res.status === 429) {
-          sttBackoffMsRef.current = sttBackoffMsRef.current ? Math.min(sttBackoffMsRef.current * 2, 30000) : 6000;
-          sttBackoffUntilRef.current = Date.now() + sttBackoffMsRef.current;
+          // Softer backoff with jitter — the old ×2 up to 30s made the app
+          // "die" for half a minute after two overlapping chunks.
+          const base = sttBackoffMsRef.current ? Math.min(sttBackoffMsRef.current * 1.6, 9000) : 1800;
+          const jitter = Math.floor(Math.random() * 600);
+          sttBackoffMsRef.current = base;
+          sttBackoffUntilRef.current = Date.now() + base + jitter;
         }
         logDiag("stt_error", { status: res.status, statusText: res.statusText, backoffMs: sttBackoffMsRef.current, chunkMs: meta?.durationMs, rms: meta?.rms, body: bodyText.slice(0, 400) });
         updateVoiceStatus({ mode: "error", message: res.status === 429 ? "ضغط عالي على التعرف — أبطّئ الطلبات تلقائياً بدون إيقاف الجلسة" : "تعذر تحليل مقطع صوتي — التسجيل مستمر" });

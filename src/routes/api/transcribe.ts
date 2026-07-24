@@ -55,7 +55,7 @@ export const Route = createFileRoute("/api/transcribe")({
         upstream.append("language", "ar");
         upstream.append("temperature", "0");
         if (stream) upstream.append("stream", "true");
-        upstream.append("prompt", "انسخ الكلام العربي المسموع حرفياً فقط كما قيل. لا تضف كلمات، لا تكمل لوحة ناقصة، لا تحوّل النص إلى لوحة، ولا تحذف التحيات أو الكلمات العادية إذا كانت مسموعة.");
+        upstream.append("prompt", "انسخ الكلام العربي المسموع حرفياً فقط كما قيل بلهجة سعودية أو مصرية عامية. الحروف السعودية الرسمية للوحات: أ ب ح د ر س ص ط ع ق ك ل م ن هـ و ي. الأرقام: 0 1 2 3 4 5 6 7 8 9. أمثلة نطق: (عين لام لام عشرين تلاتين)، (ألف باء جيم مية خمسين)، (ميم نون هـ ستة سبعة). لا تكمل لوحة ناقصة، لا تخترع حروف أو أرقام، ولا تحذف بداية أو نهاية الجملة. اكتب كل حرف مسموع حتى لو مفرد.");
 
         try {
           const res = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
